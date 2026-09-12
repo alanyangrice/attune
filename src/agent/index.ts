@@ -10,12 +10,11 @@
 
 import type { DJSession } from "../memory/session.js";
 import type { PingEvent } from "../types.js";
-import { type AgentDeps } from "./deliberate.js";
 import { AgentLoop } from "./loop.js";
 import { loadIntegrations, startIntegrationEvents } from "./tools/index.js";
-import type { Integration } from "./tools/types.js";
+import type { AgentDeps, Integration } from "./tools/types.js";
 
-export type { AgentDeps } from "./deliberate.js";
+export type { AgentDeps } from "./tools/types.js";
 
 export interface Agent {
   /** feed one ping; the gate decides whether it reaches the model */
@@ -30,6 +29,6 @@ export async function createAgent(session: DJSession, deps: AgentDeps): Promise<
   const integrations = await loadIntegrations((msg) => deps.feed({ ts: Date.now(), phase: "info", text: msg }));
   const loop = new AgentLoop(session, deps);
   const handle = (event: PingEvent) => loop.handle(event);
-  const stopSensors = startIntegrationEvents(session, (e) => void handle(e));
+  const stopSensors = startIntegrationEvents(session, deps, (e) => void handle(e));
   return { handle, integrations, stop: stopSensors };
 }

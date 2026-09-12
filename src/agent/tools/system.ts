@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { CONFIG } from "../../config.js";
-import { decide, defineTool, type AttuneTool, type Integration, type PingRuntime } from "./types.js";
+import { decide, defineTool, type Integration, type PingRuntime } from "./types.js";
 
 async function dnd(on: boolean, rt: PingRuntime): Promise<string> {
   if (rt.session.dndOn === on) return `DND is already ${on ? "on" : "off"} — choose another action.`;
@@ -27,13 +27,6 @@ function say(text: string, rt: PingRuntime): string {
   return "Said.";
 }
 
-const sayTool: AttuneTool = {
-  name: "say_nudge",
-  description: "Speak one short, playful line out loud. Rare. Never scolding.",
-  inputSchema: z.object({ text: z.string().max(140) }),
-  run: (i, rt) => say((i as { text: string }).text, rt),
-};
-
 const integration: Integration = {
   name: "system",
   order: 40,
@@ -55,7 +48,16 @@ const integration: Integration = {
       }),
       run: (i, rt) => duck(i.pct, i.seconds, rt),
     }),
-    ...(CONFIG.sayEnabled ? [sayTool] : []),
+    ...(CONFIG.sayEnabled
+      ? [
+          defineTool({
+            name: "say_nudge",
+            description: "Speak one short, playful line out loud. Rare. Never scolding.",
+            inputSchema: z.object({ text: z.string().max(140) }),
+            run: (i, rt) => say(i.text, rt),
+          }),
+        ]
+      : []),
   ],
   leverStatus: (session) => [
     `set_dnd ✓ (currently ${session.dndOn ? "on" : "off"})`,

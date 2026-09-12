@@ -35,15 +35,6 @@
       "onTaskFraction": 0.9
     },
     {
-      "kind": "pacer",
-      "seconds": 90,
-      "bpm": 6,
-      "startedAt": 1100,
-      "brBefore": 17,
-      "brAfter": 9,
-      "arousalDelta": -0.12
-    },
-    {
       "kind": "track",
       "track": {
         "uri": "stub:track:strobe",
@@ -57,6 +48,15 @@
       "reason": "Holding the lane.",
       "startedAt": 275,
       "meanArousal": 0.15
+    },
+    {
+      "kind": "pacer",
+      "seconds": 90,
+      "bpm": 6,
+      "startedAt": 1100,
+      "brBefore": 17,
+      "brAfter": 9,
+      "arousalDelta": -0.12
     }
   ],
   "nowPlaying": {

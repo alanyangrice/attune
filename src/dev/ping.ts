@@ -19,6 +19,7 @@ import { StubSpotify } from "../adapters/spotify/stub.js";
 import { CONFIG } from "../config.js";
 import { DJSession, type SessionSnapshot } from "../memory/session.js";
 import { INTERRUPT_KINDS, type FeedEvent, type LedgerEntry, type PingKind, type TrackResult } from "../types.js";
+import { argOf, flag } from "./args.js";
 
 interface Fixture extends Omit<SessionSnapshot, "startedAt" | "lastInterruptAt" | "lastPacerAt" | "lastBreakAt"> {
   elapsedSec: number;
@@ -27,9 +28,6 @@ interface Fixture extends Omit<SessionSnapshot, "startedAt" | "lastInterruptAt" 
   lastBreakAtSec?: number;
   nowPlaying?: { uri: string; positionSec: number; queuedUri?: string } | null;
 }
-
-const argOf = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split("=").slice(1).join("=");
-const flag = (k: string) => process.argv.includes(`--${k}`);
 
 const fixtureName = argOf("fixture") ?? "track-ending";
 const kind = (argOf("kind") ?? "TRACK_ENDING") as PingKind;
@@ -68,13 +66,14 @@ if (fx.nowPlaying) {
   spotify.setNowPlaying(t, fx.nowPlaying.positionSec, fx.nowPlaying.queuedUri ? (byUri.get(fx.nowPlaying.queuedUri) ?? null) : null);
 }
 const act = new ConsoleActuators((l) => print(`  actuate  ${l}`));
-const agent = await createAgent(session, { spotify, act, feed });
+const deps = { spotify, act, feed };
+const agent = await createAgent(session, deps);
 
 const event = { kind, at: Date.now(), detail };
 print(`── ping · fixture=${fixtureName} · ${kind} · llm=${CONFIG.fakeLlm ? "FAKE" : CONFIG.model} · mode=${CONFIG.mode}`);
 if (flag("show-context")) {
   print("── context the model sees ─────────────────────────────");
-  print(serializeContext(session, event, spotify, INTERRUPT_KINDS.has(kind)));
+  print(serializeContext(session, event, deps, INTERRUPT_KINDS.has(kind)));
 }
 print("── run ────────────────────────────────────────────────");
 await agent.handle(event);

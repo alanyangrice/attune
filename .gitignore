@@ -8,3 +8,4 @@ out/
 sessions/*.json
 .claude/settings.local.json
 *.log
+.spotify-tokens.json

@@ -1,22 +1,17 @@
-// Real Spotify adapter — implements SpotifyPort + the same events the stub
-// emits so run-loop / Electron can swap SPOTIFY=stub|real without changes.
-// (design.md §8, WORKPLAN lane 3)
+// Real Spotify adapter — implements SpotifyPort over the Web API with a 5 s
+// poll for playback state (design.md §8, WORKPLAN lane 3).
 
 import { EventEmitter } from "node:events";
 import { CONFIG } from "../../config.js";
+import type { SpotifyEvents, SpotifyPort } from "../../ports.js";
 import type { NowPlaying, TrackResult } from "../../types.js";
-import type { SpotifyPort } from "../../ports.js";
+import { errMsg } from "../../util.js";
 import { authenticate } from "./auth.js";
-import { api, NoActiveDeviceError } from "./client.js";
+import { api, mapTrack, NoActiveDeviceError } from "./client.js";
 
-export declare interface RealSpotify {
-  on(event: "trackchange", listener: (t: TrackResult) => void): this;
-  on(event: "ending", listener: (t: TrackResult) => void): this;
-  on(event: "no-device", listener: (message: string) => void): this;
-  on(event: "error", listener: (err: unknown) => void): this;
-}
+const POLL_MS = 5000;
 
-export class RealSpotify extends EventEmitter implements SpotifyPort {
+export class RealSpotify extends EventEmitter<SpotifyEvents> implements SpotifyPort {
   private pollTimer: NodeJS.Timeout | null = null;
   private now: NowPlaying | null = null;
   /** URI we queued for the upcoming boundary (cleared on track change). */
@@ -24,6 +19,7 @@ export class RealSpotify extends EventEmitter implements SpotifyPort {
   private endingEmittedForUri: string | null = null;
   private lastUri: string | null = null;
   private connected = false;
+  private deviceMissing = false;
 
   /** PKCE login — call once before start(), or use createSpotify(). */
   async connect(): Promise<void> {
@@ -34,9 +30,9 @@ export class RealSpotify extends EventEmitter implements SpotifyPort {
 
   start(): void {
     if (this.pollTimer) return;
-    // immediate snapshot, then 5 s poll (design.md §8)
-    void this.tick();
-    this.pollTimer = setInterval(() => void this.tick(), 5000);
+    void this.checkAccount(); // listeners exist by now; informational only
+    void this.tick(); // immediate snapshot, then poll
+    this.pollTimer = setInterval(() => void this.tick(), POLL_MS);
   }
 
   stop(): void {
@@ -45,18 +41,14 @@ export class RealSpotify extends EventEmitter implements SpotifyPort {
     this.endingEmittedForUri = null;
   }
 
-  async search(query: string, limit: number): Promise<TrackResult[]> {
+  search(query: string, limit: number): Promise<TrackResult[]> {
     return api.search(query, limit);
   }
 
   async queue(track: TrackResult, interrupt: boolean): Promise<void> {
-    this.queuedUri = track.uri;
-    if (interrupt) {
-      await api.queue(track.uri);
-      await api.next();
-    } else {
-      await api.queue(track.uri);
-    }
+    await api.queue(track.uri);
+    this.queuedUri = track.uri; // only once the API accepted it — a failed queue must not block TRACK_ENDING
+    if (interrupt) await api.next();
   }
 
   nowPlaying(): NowPlaying | null {
@@ -67,60 +59,57 @@ export class RealSpotify extends EventEmitter implements SpotifyPort {
     return this.queuedUri !== null;
   }
 
-  /** Optional TASTE seed (scope user-top-read). */
-  async topArtists(limit = 10) {
-    return api.getTopArtists(limit);
+  available(): boolean {
+    return this.connected && !this.deviceMissing;
+  }
+
+  private async checkAccount(): Promise<void> {
+    try {
+      const me = await api.me();
+      if (me.product && me.product !== "premium") {
+        this.emit("warning", `Spotify account "${me.display_name}" is ${me.product} — playback control needs Premium; search still works`);
+      }
+    } catch (err) {
+      this.emit("warning", `could not read Spotify account: ${errMsg(err)}`);
+    }
+  }
+
+  /** emit once per outage, not once per poll */
+  private noDevice(): void {
+    this.now = null;
+    if (this.deviceMissing) return;
+    this.deviceMissing = true;
+    this.emit("no-device", "No active Spotify device — press play in the desktop app");
   }
 
   private async tick(): Promise<void> {
     try {
       const state = await api.getPlayerState();
-      if (!state?.item) {
-        this.now = null;
-        this.emit("no-device", "Poke play in Spotify");
-        return;
+      if (!state?.item) return this.noDevice();
+      if (this.deviceMissing) {
+        this.deviceMissing = false;
+        this.emit("device", "Spotify is back");
       }
 
-      const track: TrackResult = {
-        uri: state.item.uri,
-        name: state.item.name,
-        artists: state.item.artists.map((a) => a.name),
-        durationSec: Math.round(state.item.duration_ms / 1000),
-      };
-      const positionSec = Math.floor(state.progress_ms / 1000);
-
-      if (this.lastUri && this.lastUri !== track.uri) {
+      const track = mapTrack(state.item);
+      if (this.lastUri !== track.uri) {
         this.queuedUri = null;
         this.endingEmittedForUri = null;
         this.emit("trackchange", track);
-      } else if (!this.lastUri) {
-        this.emit("trackchange", track);
       }
       this.lastUri = track.uri;
+      this.now = { track, positionSec: Math.floor(state.progress_ms / 1000), startedAt: Date.now() - state.progress_ms };
 
-      this.now = {
-        track,
-        positionSec,
-        startedAt: Date.now() - state.progress_ms,
-      };
-
-      const lead = CONFIG.trackEndLeadSec;
-      const msLeft = state.item.duration_ms - state.progress_ms;
-      if (
-        state.is_playing &&
-        msLeft <= lead * 1000 &&
-        this.endingEmittedForUri !== track.uri
-      ) {
+      // the poll can be up to POLL_MS late, so fire one poll early to protect the deliberation budget
+      const secondsLeft = (state.item.duration_ms - state.progress_ms) / 1000;
+      const lead = CONFIG.trackEndLeadSec + POLL_MS / 1000;
+      if (state.is_playing && secondsLeft <= lead && this.endingEmittedForUri !== track.uri) {
         this.endingEmittedForUri = track.uri;
-        this.emit("ending", track);
+        this.emit("ending", track, secondsLeft);
       }
     } catch (err) {
-      if (err instanceof NoActiveDeviceError) {
-        this.now = null;
-        this.emit("no-device", "Poke play in Spotify");
-      } else {
-        this.emit("error", err);
-      }
+      if (err instanceof NoActiveDeviceError) this.noDevice();
+      else this.emit("warning", `poll failed: ${errMsg(err)}`);
     }
   }
 }

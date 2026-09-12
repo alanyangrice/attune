@@ -1,23 +1,24 @@
 // Breathing pacer: the fastest visible closed loop we have (design.md §5, §9).
 
 import { z } from "zod";
-import { decide, defineTool, type Integration, type PingRuntime } from "./types.js";
+import { cooldownRefusal, decide, defineTool, leverStatus, type Integration, type PingRuntime } from "./types.js";
 
 function pacer(seconds: number, bpm: number, rt: PingRuntime): string {
   const wait = rt.session.pacerAvailableIn();
-  if (wait > 0) return `Pacer on cooldown for ${Math.ceil(wait)}s — choose another lever.`;
-  const entry = rt.session.addPacer(seconds, bpm);
-  const arousalAtStart = rt.session.latest?.arousal ?? 0;
+  if (wait > 0) return cooldownRefusal("Pacer", wait);
+  const { session, feed } = rt; // the timer below must not keep the whole ping runtime alive
+  const entry = session.addPacer(seconds, bpm);
+  const arousalAtStart = session.latest?.arousal ?? 0;
   rt.act.startPacer(seconds, bpm);
   setTimeout(() => {
-    rt.session.completePacer(entry, arousalAtStart);
-    rt.feed({
+    session.completePacer(entry, arousalAtStart);
+    feed({
       ts: Date.now(),
       phase: "info",
-      text: `◐ pacer done — BR ${entry.brBefore.toFixed(0)}→${entry.brAfter?.toFixed(0) ?? "?"}, arousal Δ ${entry.arousalDelta !== undefined ? entry.arousalDelta.toFixed(2) : "?"}`,
+      text: `◐ pacer done — BR ${entry.brBefore.toFixed(0)}→${entry.brAfter?.toFixed(0) ?? "?"}, arousal Δ ${entry.arousalDelta?.toFixed(2) ?? "?"}`,
     });
   }, seconds * 1000).unref();
-  rt.feed({ ts: Date.now(), phase: "decision", text: `◐ breathing pacer ${bpm}/min × ${seconds}s` });
+  feed({ ts: Date.now(), phase: "decision", text: `◐ breathing pacer ${bpm}/min × ${seconds}s` });
   decide(rt, { action: "pacer", interrupted: true });
   return "Pacer started.";
 }
@@ -38,13 +39,10 @@ const integration: Integration = {
       run: (i, rt) => pacer(i.seconds, i.bpm, rt),
     }),
   ],
-  leverStatus: (session) => {
-    const wait = session.pacerAvailableIn();
-    return [wait > 0 ? `start_breathing_pacer on cooldown ${Math.ceil(wait)}s` : "start_breathing_pacer ✓"];
-  },
+  leverStatus: (session) => [leverStatus("start_breathing_pacer", session.pacerAvailableIn())],
   contextLine: (session) => {
-    const last = [...session.ledger].reverse().find((e) => e.kind === "pacer");
-    if (!last || last.kind !== "pacer") return null;
+    const last = session.lastEntry("pacer");
+    if (!last) return null;
     const endsAt = last.startedAt + last.seconds * 1000;
     const now = Date.now();
     if (now < endsAt) return `PACER: active, ${Math.ceil((endsAt - now) / 1000)}s left at ${last.bpm}/min — breathing is being paced right now`;

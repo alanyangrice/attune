@@ -15,7 +15,7 @@ Study-session agent: webcam vitals + attention (Presage SmartSpectra) → Claude
 - `ports.ts` — every boundary interface: `SpotifyPort`, `ActuatorPort`, `VitalsProvider`, `AttentionProvider`, `SessionStore`. Core code imports outside services only through here.
 - `agent/` — `index.ts` (`createAgent()`, the only import for entry points) → `loop.ts` (the gate: priority, cooldowns, one deliberation in flight) → `deliberate.ts` (one bounded tool-runner call, or the fake policy) → `tools/` (one integration per file: tools + doctrine + lever status) + `prompts/` (stable system prompt, per-ping context).
 - `memory/session.ts` — `DJSession`: per-session durable state; the ledger is the agent's memory. `toSnapshot()` / `fromSnapshot()` are the persistence and fixture surface.
-- `adapters/` — implementations of ports: `spotify-stub.ts`, `actuators-console.ts`; real ones drop in beside them.
+- `adapters/` — implementations of ports: `spotify/` (stub + real behind `createSpotify()`), `actuators-console.ts`; real ones drop in beside them.
 - `sensors/` — what produces samples and pings (the orchestrator side, deferred): `vitals-mock.ts`, `estimator.ts`.
 - `dev/` — `ping.ts` (one-shot harness), `run-loop.ts` (full demo), `fixtures/`.
 

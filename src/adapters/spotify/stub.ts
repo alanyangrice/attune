@@ -3,26 +3,20 @@
 
 import { EventEmitter } from "node:events";
 import { CONFIG } from "../../config.js";
+import type { SpotifyEvents, SpotifyPort } from "../../ports.js";
 import type { NowPlaying, TrackResult } from "../../types.js";
-import type { SpotifyPort } from "../../ports.js";
 
 interface CatalogRow extends TrackResult {
-  tags: string[];
+  hay: string; // pre-lowercased search text
 }
 
-const row = (
-  name: string,
-  artist: string,
-  durationSec: number,
-  popularity: number,
-  tags: string[],
-): CatalogRow => ({
+const row = (name: string, artist: string, durationSec: number, popularity: number, tags: string[]): CatalogRow => ({
   uri: `stub:track:${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
   name,
   artists: [artist],
   durationSec,
   popularity,
-  tags,
+  hay: [name, artist, ...tags].join(" ").toLowerCase(),
 });
 
 const CATALOG: CatalogRow[] = [
@@ -46,14 +40,18 @@ const CATALOG: CatalogRow[] = [
   row("Take Five", "Dave Brubeck", 324, 80, ["jazz", "instrumental", "focus", "classic", "swing"]),
 ];
 
-export declare interface StubSpotify {
-  on(event: "trackchange", listener: (t: TrackResult) => void): this;
-  on(event: "ending", listener: (t: TrackResult) => void): this;
+const toTrack = ({ hay: _hay, ...t }: CatalogRow): TrackResult => t;
+
+interface FakePlayback {
+  track: TrackResult;
+  startedAt: number;
+  positionSec: number;
+  cap: number; // seconds this track "plays" before it ends
+  endingEmitted: boolean;
 }
 
-export class StubSpotify extends EventEmitter implements SpotifyPort {
-  private now: { track: TrackResult; startedAt: number; positionSec: number; cap: number; endingEmitted: boolean } | null =
-    null;
+export class StubSpotify extends EventEmitter<SpotifyEvents> implements SpotifyPort {
+  private now: FakePlayback | null = null;
   private queued: TrackResult | null = null;
   private timer: NodeJS.Timeout | null = null;
 
@@ -69,20 +67,11 @@ export class StubSpotify extends EventEmitter implements SpotifyPort {
 
   async search(query: string, limit: number): Promise<TrackResult[]> {
     const terms = query.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-    const scored = CATALOG.map((c) => {
-      const hay = [c.name, ...c.artists, ...c.tags].join(" ").toLowerCase();
-      const score = terms.reduce((s, t) => s + (hay.includes(t) ? 1 : 0), 0);
-      return { c, score };
-    })
+    return CATALOG.map((c) => ({ c, score: terms.filter((t) => c.hay.includes(t)).length }))
       .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score || (b.c.popularity ?? 0) - (a.c.popularity ?? 0));
-    return scored.slice(0, limit).map(({ c }) => ({
-      uri: c.uri,
-      name: c.name,
-      artists: c.artists,
-      durationSec: c.durationSec,
-      popularity: c.popularity,
-    }));
+      .sort((a, b) => b.score - a.score || (b.c.popularity ?? 0) - (a.c.popularity ?? 0))
+      .slice(0, limit)
+      .map(({ c }) => toTrack(c));
   }
 
   async queue(track: TrackResult, interrupt: boolean): Promise<void> {
@@ -92,13 +81,7 @@ export class StubSpotify extends EventEmitter implements SpotifyPort {
 
   /** fixtures / tests: pretend `track` has been playing for positionSec (no clock needed) */
   setNowPlaying(track: TrackResult, positionSec: number, queued: TrackResult | null = null): void {
-    this.now = {
-      track,
-      startedAt: Date.now() - positionSec * 1000,
-      positionSec,
-      cap: Math.min(track.durationSec, CONFIG.trackSecondsCap),
-      endingEmitted: false,
-    };
+    this.play(track, positionSec);
     this.queued = queued;
   }
 
@@ -111,17 +94,25 @@ export class StubSpotify extends EventEmitter implements SpotifyPort {
     return this.queued !== null;
   }
 
+  available(): boolean {
+    return true;
+  }
+
+  private play(track: TrackResult, positionSec: number): void {
+    this.now = {
+      track,
+      startedAt: Date.now() - positionSec * 1000,
+      positionSec,
+      cap: Math.min(track.durationSec, CONFIG.trackSecondsCap),
+      endingEmitted: false,
+    };
+  }
+
   private advance(): void {
     if (!this.queued) return;
     const track = this.queued;
     this.queued = null;
-    this.now = {
-      track,
-      startedAt: Date.now(),
-      positionSec: 0,
-      cap: Math.min(track.durationSec, CONFIG.trackSecondsCap),
-      endingEmitted: false,
-    };
+    this.play(track, 0);
     this.emit("trackchange", track);
   }
 
@@ -131,7 +122,7 @@ export class StubSpotify extends EventEmitter implements SpotifyPort {
     const { positionSec, cap } = this.now;
     if (!this.now.endingEmitted && positionSec >= cap - CONFIG.trackEndLeadSec) {
       this.now.endingEmitted = true;
-      this.emit("ending", this.now.track);
+      this.emit("ending", this.now.track, cap - positionSec);
     }
     if (positionSec >= cap) {
       if (this.queued) this.advance();

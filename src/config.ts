@@ -19,7 +19,7 @@ try {
   /* no .env — fine */
 }
 
-const MODE = (process.env.ATTUNE_MODE ?? "demo") as "demo" | "real";
+const MODE = process.env.ATTUNE_MODE === "real" ? "real" : "demo";
 
 const TIMINGS = {
   real: {
@@ -66,5 +66,3 @@ export const CONFIG = {
 
   ...TIMINGS,
 } as const;
-
-export type Config = typeof CONFIG;

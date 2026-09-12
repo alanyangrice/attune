@@ -5,19 +5,36 @@
 // own, it arrives through a port declared in this file.
 
 import type { EventEmitter } from "node:events";
-import type { AttentionState, NowPlaying, TrackResult } from "./types.js";
+import type { AttentionState, NowPlaying, PingEvent, TrackResult, VitalsSample } from "./types.js";
 
-// ── actuators (what the agent's tools act through) ───────────────────────
+// ── music ────────────────────────────────────────────────────────────────
 
+export type SpotifyEvents = {
+  /** playback moved to a new track (also fired once for whatever is playing at start) */
+  trackchange: [track: TrackResult];
+  /** the current track ends in about `secondsLeft`; fired once per track */
+  ending: [track: TrackResult, secondsLeft: number];
+  /** playback control is unavailable (fired once per outage) / available again */
+  "no-device": [message: string];
+  device: [message: string];
+  /** informational, e.g. account is not Premium */
+  warning: [message: string];
+};
 
-export interface SpotifyPort {
+export interface SpotifyPort extends EventEmitter<SpotifyEvents> {
+  start(): void;
+  stop(): void;
   search(query: string, limit: number): Promise<TrackResult[]>;
-  /** queue next; interrupt=true also skips the current track immediately */
+  /** queue next; interrupt=true also skips the current track immediately. Throws if playback control fails. */
   queue(track: TrackResult, interrupt: boolean): Promise<void>;
   nowPlaying(): NowPlaying | null;
   /** whether we already queued something for the upcoming boundary */
   hasQueued(): boolean;
+  /** can playback be controlled right now? (false = no active device; search still works) */
+  available(): boolean;
 }
+
+// ── actuators (what the agent's tools act through) ───────────────────────
 
 export interface ActuatorPort {
   startPacer(seconds: number, bpm: number): void;
@@ -29,14 +46,22 @@ export interface ActuatorPort {
 
 // ── sensors (produce samples and pings; the deferred orchestrator side) ──
 
-/** Emits 'sample' (~1 Hz VitalsSample) and 'status' (calibrating | ok | low-confidence | simulated). */
-export interface VitalsProvider extends EventEmitter {
+export type VitalsEvents = {
+  sample: [sample: VitalsSample]; // ~1 Hz
+  status: [status: "calibrating" | "ok" | "low-confidence" | "simulated"];
+};
+
+export interface VitalsProvider extends EventEmitter<VitalsEvents> {
   start(): void | Promise<void>;
   stop(): void;
 }
 
-/** Emits 'state' (AttentionState + reason) and 'ping' (DISTRACTED / REFOCUSED PingEvents). */
-export interface AttentionProvider extends EventEmitter {
+export type AttentionEvents = {
+  state: [state: AttentionState, reason: string];
+  ping: [event: PingEvent]; // DISTRACTED / REFOCUSED
+};
+
+export interface AttentionProvider extends EventEmitter<AttentionEvents> {
   start(): void | Promise<void>;
   stop(): void;
   readonly state: AttentionState;

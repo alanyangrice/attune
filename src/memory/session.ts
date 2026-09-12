@@ -7,8 +7,11 @@ import { CONFIG } from "../config.js";
 import type {
   ArousalSnapshot,
   AttentionState,
+  BreakEntry,
   LedgerEntry,
+  PacerEntry,
   Target,
+  TrackEntry,
   TrackResult,
 } from "../types.js";
 
@@ -34,15 +37,21 @@ export interface SessionSnapshot extends SessionConfig {
 }
 
 interface TrackAccumulator {
-  entry: Extract<LedgerEntry, { kind: "track" }>;
+  entry: TrackEntry;
   sumArousal: number;
   n: number;
   onTask: number;
   attnSamples: number;
 }
 
+const freshAccumulator = (entry: TrackEntry): TrackAccumulator => ({ entry, sumArousal: 0, n: 0, onTask: 0, attnSamples: 0 });
+
+const secondsUntil = (lastAt: number, cooldownSec: number): number =>
+  Math.max(0, cooldownSec - (Date.now() - lastAt) / 1000);
+
 export class DJSession {
   readonly startedAt: number;
+  /** append-only, chronological */
   readonly ledger: LedgerEntry[] = [];
 
   target: Target;
@@ -65,7 +74,7 @@ export class DJSession {
   lastBreakAt = 0;
 
   private current: TrackAccumulator | null = null;
-  private playedUris = new Set<string>();
+  private recentArousal: number[] = [];
 
   constructor(cfg: SessionConfig) {
     this.target = cfg.target;
@@ -92,8 +101,8 @@ export class DJSession {
     };
   }
 
-  /** Rebuild a live session from a snapshot. A trailing track entry without
-   *  endedAt becomes the current track (its accumulator restarts). */
+  /** Rebuild a live session from a snapshot. The most recent track entry
+   *  without endedAt becomes the current track (its accumulator restarts). */
   static fromSnapshot(snap: SessionSnapshot): DJSession {
     const s = new DJSession(snap);
     s.ledger.push(...structuredClone(snap.ledger));
@@ -103,26 +112,52 @@ export class DJSession {
     s.lastInterruptAt = snap.lastInterruptAt;
     s.lastPacerAt = snap.lastPacerAt;
     s.lastBreakAt = snap.lastBreakAt;
-    for (const e of s.ledger) if (e.kind === "track") s.playedUris.add(e.track.uri);
-    const last = s.ledger[s.ledger.length - 1];
-    if (last?.kind === "track" && last.endedAt === undefined) {
-      s.current = { entry: last, sumArousal: 0, n: 0, onTask: 0, attnSamples: 0 };
-    }
+    const track = s.lastEntry("track");
+    if (track && track.endedAt === undefined) s.current = freshAccumulator(track);
     return s;
+  }
+
+  // ── ledger queries ───────────────────────────────────────────────────────
+
+  /** most recent entry of a kind (ledger is chronological, so no copy needed) */
+  lastEntry(kind: "track"): TrackEntry | undefined;
+  lastEntry(kind: "pacer"): PacerEntry | undefined;
+  lastEntry(kind: "break"): BreakEntry | undefined;
+  lastEntry(kind: LedgerEntry["kind"]): LedgerEntry | undefined {
+    return this.ledger.findLast((e) => e.kind === kind);
+  }
+
+  currentTrackEntry(): TrackEntry | null {
+    return this.current?.entry ?? null;
+  }
+
+  alreadyPlayed(uri: string): boolean {
+    return this.ledger.some((e) => e.kind === "track" && e.track.uri === uri);
+  }
+
+  lastArtists(): string[] {
+    return this.lastEntry("track")?.track.artists ?? [];
+  }
+
+  /** Why this track may not be queued right now, or null if it may.
+   *  The one place the "no repeats / no same artist twice" rules live. */
+  queueBlocker(track: TrackResult): string | null {
+    if (this.alreadyPlayed(track.uri)) return "Already played this session — pick another track.";
+    const last = this.lastArtists();
+    if (track.artists.some((a) => last.includes(a)))
+      return `Same artist back-to-back (${last.join(", ")}) — pick a different artist.`;
+    return null;
   }
 
   // ── sensing ticks (1 Hz) ─────────────────────────────────────────────────
 
-  private recentArousal: number[] = [];
-
   tick(s: ArousalSnapshot, attention: AttentionState): void {
     this.latest = s;
     this.attention = attention;
-    if (s.calibrated) {
-      this.recentArousal.push(s.arousal);
-      if (this.recentArousal.length > 120) this.recentArousal.shift();
-    }
-    if (this.current && s.calibrated) {
+    if (!s.calibrated) return;
+    this.recentArousal.push(s.arousal);
+    if (this.recentArousal.length > 120) this.recentArousal.shift();
+    if (this.current) {
       this.current.sumArousal += s.arousal;
       this.current.n += 1;
       if (attention !== "UNKNOWN") {
@@ -135,10 +170,10 @@ export class DJSession {
   // ── track lifecycle (driven by the player's trackchange events) ─────────
 
   onTrackChange(track: TrackResult): void {
-    const prevMean = this.closeCurrentTrack();
+    this.closeCurrentTrack();
     const mine = this.pendingQueue?.track.uri === track.uri ? this.pendingQueue : null;
     this.pendingQueue = null;
-    const entry: Extract<LedgerEntry, { kind: "track" }> = {
+    const entry: TrackEntry = {
       kind: "track",
       pingId: mine?.pingId,
       track,
@@ -146,25 +181,22 @@ export class DJSession {
       startedAt: Date.now(),
     };
     this.ledger.push(entry);
-    this.current = { entry, sumArousal: 0, n: 0, onTask: 0, attnSamples: 0 };
-    this.playedUris.add(track.uri);
-    void prevMean;
+    this.current = freshAccumulator(entry);
   }
 
-  private closeCurrentTrack(): number | undefined {
-    if (!this.current) return undefined;
+  private closeCurrentTrack(): void {
+    if (!this.current) return;
     const { entry, sumArousal, n, onTask, attnSamples } = this.current;
     entry.endedAt = Date.now();
     entry.meanArousal = n ? sumArousal / n : undefined;
     entry.onTaskFraction = attnSamples ? onTask / attnSamples : undefined;
-    const prevTrack = [...this.ledger]
-      .reverse()
-      .find((e): e is Extract<LedgerEntry, { kind: "track" }> => e.kind === "track" && e !== entry && e.meanArousal !== undefined);
-    if (entry.meanArousal !== undefined && prevTrack?.meanArousal !== undefined) {
-      entry.deltaVsPrev = entry.meanArousal - prevTrack.meanArousal;
+    const prev = this.ledger.findLast(
+      (e): e is TrackEntry => e.kind === "track" && e !== entry && e.meanArousal !== undefined,
+    );
+    if (entry.meanArousal !== undefined && prev?.meanArousal !== undefined) {
+      entry.deltaVsPrev = entry.meanArousal - prev.meanArousal;
     }
     this.current = null;
-    return entry.meanArousal;
   }
 
   markPulledBack(): void {
@@ -173,8 +205,8 @@ export class DJSession {
 
   // ── non-music interventions ──────────────────────────────────────────────
 
-  addPacer(seconds: number, bpm: number): Extract<LedgerEntry, { kind: "pacer" }> {
-    const entry: Extract<LedgerEntry, { kind: "pacer" }> = {
+  addPacer(seconds: number, bpm: number): PacerEntry {
+    const entry: PacerEntry = {
       kind: "pacer",
       pingId: this.currentPingId ?? undefined,
       seconds,
@@ -183,17 +215,17 @@ export class DJSession {
       brBefore: this.latest?.br ?? 0,
     };
     this.ledger.push(entry);
-    this.lastPacerAt = Date.now();
+    this.lastPacerAt = entry.startedAt;
     return entry;
   }
 
-  completePacer(entry: Extract<LedgerEntry, { kind: "pacer" }>, arousalAtStart: number): void {
+  completePacer(entry: PacerEntry, arousalAtStart: number): void {
     entry.brAfter = this.latest?.br;
     if (this.latest) entry.arousalDelta = this.latest.arousal - arousalAtStart;
   }
 
-  addBreak(breakKind: string, minutes: number, reason: string): Extract<LedgerEntry, { kind: "break" }> {
-    const entry: Extract<LedgerEntry, { kind: "break" }> = {
+  addBreak(breakKind: string, minutes: number, reason: string): BreakEntry {
+    const entry: BreakEntry = {
       kind: "break",
       pingId: this.currentPingId ?? undefined,
       breakKind,
@@ -203,14 +235,12 @@ export class DJSession {
       response: "pending",
     };
     this.ledger.push(entry);
-    this.lastBreakAt = Date.now();
+    this.lastBreakAt = entry.startedAt;
     return entry;
   }
 
   resolveBreak(response: "accepted" | "snoozed" | "ignored"): void {
-    const pending = [...this.ledger]
-      .reverse()
-      .find((e): e is Extract<LedgerEntry, { kind: "break" }> => e.kind === "break" && e.response === "pending");
+    const pending = this.ledger.findLast((e): e is BreakEntry => e.kind === "break" && e.response === "pending");
     if (pending) pending.response = response;
   }
 
@@ -223,36 +253,23 @@ export class DJSession {
     this.ledger.push({ kind: "nothing", pingId: this.currentPingId ?? undefined, reason, at: Date.now() });
   }
 
-  // ── constraints the tools enforce / the prompt cites ────────────────────
-
-  alreadyPlayed(uri: string): boolean {
-    return this.playedUris.has(uri);
-  }
-
-  lastArtists(): string[] {
-    const t = [...this.ledger]
-      .reverse()
-      .find((e): e is Extract<LedgerEntry, { kind: "track" }> => e.kind === "track");
-    return t?.track.artists ?? [];
-  }
+  // ── cooldowns ────────────────────────────────────────────────────────────
 
   pacerAvailableIn(): number {
-    return Math.max(0, CONFIG.pacerCooldownSec - (Date.now() - this.lastPacerAt) / 1000);
+    return secondsUntil(this.lastPacerAt, CONFIG.pacerCooldownSec);
   }
 
   breakAvailableIn(): number {
-    return Math.max(0, CONFIG.breakCooldownSec - (Date.now() - this.lastBreakAt) / 1000);
+    return secondsUntil(this.lastBreakAt, CONFIG.breakCooldownSec);
   }
 
   interruptAvailableIn(): number {
-    return Math.max(0, CONFIG.interruptCooldownSec - (Date.now() - this.lastInterruptAt) / 1000);
+    return secondsUntil(this.lastInterruptAt, CONFIG.interruptCooldownSec);
   }
 
-  currentTrackEntry(): Extract<LedgerEntry, { kind: "track" }> | null {
-    return this.current?.entry ?? null;
-  }
+  // ── derived signals for the serializer ───────────────────────────────────
 
-  /** 30-sample arousal trend for the serializer: ↑ / → / ↓ */
+  /** 30-sample arousal trend: ↑ / → / ↓ */
   trend(): "↑" | "→" | "↓" {
     const n = this.recentArousal.length;
     if (n < 31) return "→";
@@ -260,7 +277,7 @@ export class DJSession {
     return d > 0.03 ? "↑" : d < -0.03 ? "↓" : "→";
   }
 
-  /** live on-task fraction for the current track (for the serializer) */
+  /** live on-task fraction for the current track */
   currentOnTask(): number | undefined {
     if (!this.current || !this.current.attnSamples) return undefined;
     return this.current.onTask / this.current.attnSamples;
