@@ -3,10 +3,14 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "types": ["node"],
     "strict": true,
-    "esModuleInterop": true,
+    "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
     "noEmit": true
   },
-  "include": ["electron/**/*.ts"]
+  "include": ["src/**/*.ts", "electron/**/*.ts"]
 }

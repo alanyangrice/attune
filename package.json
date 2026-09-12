@@ -1,18 +1,31 @@
 {
   "name": "attune",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "A focus agent that DJs (and more) — HackRice 16",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "loop": "tsx src/dev/run-loop.ts",
+    "loop:auto": "tsx src/dev/run-loop.ts --auto",
+    "loop:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts",
+    "loop:fake:auto": "ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts --auto",
+    "loop:real": "SPOTIFY=real tsx src/dev/run-loop.ts",
+    "loop:real:fake": "SPOTIFY=real ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts",
+    "ping": "tsx src/dev/ping.ts",
+    "ping:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/ping.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "camera:test": "tsx electron/vitals/camera-smoke.ts"
   },
   "dependencies": {
-    "@smartspectra/node-sdk": "^3.2.0"
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@smartspectra/node-sdk": "^3.2.0",
+    "zod": "^4.6.2"
   },
   "devDependencies": {
+    "@types/node": "^22.13.10",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }

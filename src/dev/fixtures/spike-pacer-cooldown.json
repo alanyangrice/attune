@@ -1,0 +1,66 @@
+{
+  "target": "focus",
+  "task": "orgo chapter 7 problem set",
+  "taste": "mostly instrumental; likes Bonobo and film scores; no country",
+  "elapsedSec": 1200,
+  "attention": "FOCUSED",
+  "dndOn": false,
+  "lastPacerAtSec": 1185,
+  "latest": {
+    "ts": 0,
+    "arousal": 0.19,
+    "band": "high",
+    "hr": 86,
+    "br": 18,
+    "baselineHr": 71,
+    "baselineBr": 13,
+    "calibrated": true
+  },
+  "ledger": [
+    {
+      "kind": "track",
+      "track": {
+        "uri": "stub:track:time",
+        "name": "Time",
+        "artists": [
+          "Hans Zimmer"
+        ],
+        "durationSec": 275,
+        "popularity": 60
+      },
+      "reason": "Opening in the focus lane.",
+      "startedAt": 0,
+      "endedAt": 275,
+      "meanArousal": 0.05,
+      "onTaskFraction": 0.9
+    },
+    {
+      "kind": "pacer",
+      "seconds": 90,
+      "bpm": 6,
+      "startedAt": 1100,
+      "brBefore": 17,
+      "brAfter": 9,
+      "arousalDelta": -0.12
+    },
+    {
+      "kind": "track",
+      "track": {
+        "uri": "stub:track:strobe",
+        "name": "Strobe",
+        "artists": [
+          "deadmau5"
+        ],
+        "durationSec": 634,
+        "popularity": 60
+      },
+      "reason": "Holding the lane.",
+      "startedAt": 275,
+      "meanArousal": 0.15
+    }
+  ],
+  "nowPlaying": {
+    "uri": "stub:track:strobe",
+    "positionSec": 300
+  }
+}
