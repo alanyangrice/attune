@@ -15,5 +15,5 @@
     "declaration": false,
     "sourceMap": true
   },
-  "include": ["spotify/**/*.ts", "electron/**/*.ts"]
+  "include": ["spotify/**/*.ts", "electron/**/*.ts", "agent/**/*.ts"]
 }

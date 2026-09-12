@@ -5,10 +5,13 @@
   "main": "dist/electron/smoke-main.js",
   "scripts": {
     "build": "tsc",
-    "smoke:spotify": "tsc && electron ."
+    "smoke:spotify": "tsc && electron .",
+    "smoke:agent": "tsc && electron dist/electron/smoke-agent.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.7"
+    "@anthropic-ai/sdk": "^0.71.2",
+    "dotenv": "^16.4.7",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",

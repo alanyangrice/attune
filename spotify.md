@@ -148,6 +148,7 @@ terminal for `player:state` / `queue:ok` / `player:no-device`.
 - [x] Add `interrupt(uri, reason?)` (queue then next).
 - [x] Add `getTopArtists()` for TASTE seeding.
 - [x] M0-B Electron smoke harness (`electron/smoke-main.ts`, `npm run smoke:spotify`).
+- [x] Agent music tools + M0-C smoke (`agent/tools.ts`, `npm run smoke:agent`).
 - [ ] Persist tokens across main-process restarts if demos need re-auth-free
       relaunches (in-memory is fine for a single session).
 - [ ] Wire `playerEvents` / `spotifyClient` through `ipc.ts` and agent tools.
