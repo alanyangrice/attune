@@ -17,7 +17,9 @@
 | Spotify | **Premium, drive the real desktop Spotify app** via Web API (`/me/player`) | Least code, real sound from the laptop, most reliable live |
 | Recommender | **The agent itself picks the exact next track** (verifies via Spotify search), with visible reasoning | Spotify killed `/recommendations` + `/audio-features` for new apps (Nov 2024) — Claude's music knowledge replaces them, and it's the better demo anyway |
 | Agent model | `claude-opus-5` via `@anthropic-ai/sdk` tool runner | Deliberation quality *is* the product; at ~20 calls/hour cost is pennies |
-| Scope pivot (2026-09-12) | Agent optimizes **attention, not just music**: one action per ping from an **intervention toolbox** (§5); music stays the backbone | Music is one lever on attention; the other levers demo on faster timescales (breathing converges in ~1 min, distraction reacts in seconds), and explicit `do_nothing` makes restraint visible |
+| Scope pivot (2026-09-12) | Agent optimizes **attention, not just music**: a few deliberate actions per ping (usually one) from an **intervention toolbox** (§5); music stays the backbone | Music is one lever on attention; the other levers demo on faster timescales (breathing converges in ~1 min, distraction reacts in seconds), and explicit `do_nothing` makes restraint visible |
+| Packaging | **Standalone agent first**; toolbox optionally exposed later via an `attune-mcp` + plain-HTTP facade on localhost (§9, flex) | The reflex loop (spike → act in ~2 s, 1 Hz fusion) needs in-process latency no external harness gives; the facade is a thin adapter over `tools.ts` and turns the sensor/actuator stack into a platform story — reflexes local, executive agents (OpenClaw etc.) optional on top |
+| Backend split | **The TS agent core IS the backend**: a headless Node service (`agent/`, `state/`, sensors, actuators — zero Electron imports, provable via the console harness), hosted by Electron main at M2; the renderer is a thin client (feed + charts + 5 commands) | Considered a Python backend and rejected for the weekend: Presage ships no Python SDK, so Python still needs a Node vitals sidecar — two runtimes, an extra hop, and a rewrite of a working agent core for zero capability gain. Revisit only if the team is decisively Python-strong; then port just the brain (deliberate/prompts) behind the same event contract |
 | Demo-moment priorities | **Open** — menu in §9, pick at the table after M1 | Team call once the core loop exists |
 
 ---
@@ -29,7 +31,7 @@
    │                                                          │
    ▼                                                          │
  webcam ──► SmartSpectra SDK ──► State Estimator ──► ping ──► Focus Agent (Claude)
-            (HR, BR, HRV, face,  (arousal §4 +        ▲        │  one action per ping (§5):
+            (HR, BR, HRV, face,  (arousal §4 +        ▲        │  lightest lever(s) per ping (§5):
              continuous)          attention §4b)      │        │  • search → queue_track
                                                       │        │  • breathing pacer · break
             track-ending / spike / distracted /       │        │  • set_dnd · duck · do_nothing
@@ -43,42 +45,107 @@ Two more sensor channels feed the same estimator (§4b): **face metrics** from t
 
 The agent is a **long-running session, not a long-running conversation**: a `DJSession` object lives in the Electron main process for the whole session and holds the durable state (target, baseline, intervention ledger). Each *ping* runs one bounded agentic call (Claude + tool loop, ~5s) over that state. Stateless calls over durable state = crash-safe, no context bloat, easy to replay/debug — and the ledger (tracks, pacer runs, breaks, each with its measured effect) *is* the agent's memory.
 
-## 2. Architecture (Electron)
+## 2. Architecture
 
 ```
 attune/
-  electron/                     # main process (Node 20+, TypeScript)
-    main.ts                     #   boot + module wiring
-    vitals/
-      provider.ts               #   VitalsProvider interface + types
-      smartspectra.ts           #   real adapter (@smartspectra/node-sdk)
-      mock.ts                   #   scripted / replay / manual mock
-    state/
+  src/                          # THE BACKEND: plain Node/TS, zero Electron imports (runs headless via src/dev/*)
+    types.ts                    #   data contracts: events, ledger, samples, decisions
+    ports.ts                    #   boundary interfaces: SpotifyPort, ActuatorPort, VitalsProvider, AttentionProvider, SessionStore
+    config.ts                   #   every threshold; demo / real timing profiles
+    memory/
+      session.ts                #   DJSession: target, task, ledger; toSnapshot()/fromSnapshot()
+      store.ts                  #   (next) SessionStore impl: sessions/*.json → PRIOR SESSIONS context
+    sensors/                    #   the orchestrator side — produces samples + pings (deferred; mock today)
       estimator.ts              #   baseline, arousal, spike detection
-      session.ts                #   DJSession: target, task, ledger, event log
-    attention/
-      face.ts                   #   landmarks → head pose, gaze, blink rate, stillness (pure math)
-      screen.ts                 #   desktopCapturer → downscaled JPEG → Claude on-task verdict
-      fuse.ts                   #   face + screen → attention score + state machine (§4b)
+      vitals-mock.ts            #   scripted / manual mock VitalsProvider
+      smartspectra.ts           #   (M3) real VitalsProvider (@smartspectra/node-sdk)
+      attention/                #   (M3b) face.ts, screen.ts, fuse.ts → AttentionProvider (§4b)
+    adapters/                   #   port implementations
+      spotify-stub.ts           #   canned catalog + fake player clock
+      actuators-console.ts      #   printed effects
+      spotify/                  #   (M0-B) auth.ts (PKCE), client.ts, player.ts (5 s poll)
+      actuators-macos.ts        #   (M2) pacer window, break card, DND via `shortcuts`, osascript volume, `say`
+    dev/
+      ping.ts                   #   one-shot harness: fixture + one ping → context, tool calls, decision
+      run-loop.ts               #   full closed loop on mock sensors
+      fixtures/*.json           #   scenario snapshots (timestamps in seconds since session start)
     agent/
-      dj.ts                     #   deliberate(): toolRunner call
-      prompts.ts                #   system prompt + context serializer
-      tools.ts                  #   betaZodTool defs (search + the §5 action toolbox)
-    interventions/
-      pacer.ts                  #   breathing-pacer overlay window (frameless, always-on-top)
-      breaks.ts                 #   break card overlay + accept/snooze plumbing
-      system.ts                 #   macOS levers: DND via `shortcuts run`, volume via osascript, optional `say`
-    spotify/
-      auth.ts                   #   Authorization Code + PKCE, token refresh
-      client.ts                 #   thin fetch wrapper
-      player.ts                 #   5s poll loop → PlayerState events
-    ipc.ts                      #   typed channel contract (see §7)
-  src/                          # renderer (React + Vite)
-    App.tsx, panels/*           #   dashboard (see §6)
+      index.ts                  #   createAgent(session, deps) → { handle, integrations, stop } — the only import for entry points
+      loop.ts                   #   AgentLoop: the gate (priority, cooldowns, one deliberation in flight)
+      deliberate.ts             #   deliberate(): one bounded toolRunner call (+ scripted FAKE_LLM policy)
+      prompts/
+        system.ts               #   base prompt + doctrine assembly (cache-stable)
+        context.ts              #   per-ping payload serializer (levers/context from registry)
+      tools/                    #   ← one file per integration, auto-discovered (evanai-style)
+        types.ts                #   Integration/AttuneTool contract + PingRuntime + guards
+        index.ts                #   registry: discovery, runner binding, doctrine/status collection
+        spotify.ts pacer.ts breaks.ts system.ts core.ts   # built-ins
+  electron/                     # (M2) thin host: main.ts wires src/ + IPC; overlay windows for pacer / break card
+    main.ts                     #   createAgent() + sensors + adapters; ipc.ts typed channels (§7)
+  renderer/                     # (M2) React + Vite dashboard (§6)
   design.md
 ```
 
 Everything interesting runs in **main** (SDK, agent, Spotify). The renderer is a dashboard + the SmartSpectra camera-capture page (their renderer entry auto-acquires the camera and ships frames to main over IPC).
+
+### Process shape: agent service + thin frontend
+
+The agent core (`agent/`, `state/`, `vitals/`, `spotify/`, `interventions/`) is plain Node with **zero Electron imports** — it is the backend. It runs two ways:
+
+- **Headless:** `npm run loop:fake` / `npm run loop` — the console harness (`dev/run-loop.ts`) drives the whole closed loop in a terminal. This stays the fastest dev loop and the demo fallback.
+- **Hosted by Electron main (M2):** same modules, rewired to real overlays, `desktopCapturer`, and IPC. The renderer is deliberately thin: it renders `FeedEvent`s (agent traces), vitals/attention ticks, and the timeline, and sends five commands (`session:start/stop`, `setTarget`, `user:nudge`, `break:response`). The agent does the work; the UI watches it work.
+
+```mermaid
+flowchart LR
+  subgraph SENSE["Sensing"]
+    CAM[Webcam] --> SS["SmartSpectra SDK<br/>HR · BR · face metrics"]
+    SS --> EST["Arousal estimator §4<br/>baseline · bands · spikes"]
+    SS --> FACE["Face math §4b<br/>gaze · blinks · presence"]
+    SCR["Screen thumbnail<br/>+ front app"] --> VERDICT["Claude verdict:<br/>on task?"]
+    FACE --> FUSE["Fusion state machine<br/>FOCUSED / DISTRACTED /<br/>OFF_TASK / DROWSY / AWAY"]
+    VERDICT --> FUSE
+  end
+
+  subgraph CORE["Agent service · Node in Electron main · the backend"]
+    PLAYER["Player poll 5s"]
+    ORCH["Orchestrator<br/>gates · cooldowns · priorities"]
+    DJ["Deliberation<br/>claude-opus-5 tool runner"]
+    TOOLS["Toolbox · lightest lever, usually one<br/>queue_track · pacer · break<br/>dnd · duck · say · do_nothing"]
+    LEDGER[("Intervention ledger<br/>measured effects")]
+    ORCH --> DJ --> TOOLS --> LEDGER
+    LEDGER -. evidence in next context .-> DJ
+    PLAYER -- TRACK_ENDING --> ORCH
+  end
+
+  EST -- SPIKE --> ORCH
+  FUSE -- DISTRACTED / REFOCUSED --> ORCH
+
+  subgraph ACT["Actuation"]
+    SP["Spotify Web API<br/>search · queue · skip"]
+    OV["Overlay windows<br/>pacer · break card"]
+    OS["macOS levers<br/>DND · volume · say"]
+  end
+  TOOLS --> SP
+  TOOLS --> OV
+  TOOLS --> OS
+  SP -. now playing .-> PLAYER
+
+  LISTENER((Listener))
+  SP --> LISTENER
+  OV --> LISTENER
+  OS --> LISTENER
+  LISTENER -. body responds .-> CAM
+
+  subgraph UI["Electron renderer · thin client"]
+    FEED["Agent trace feed"]
+    TILES["Vitals + attention tiles"]
+    TL["Timeline chart"]
+    BTN["Start · target · nudge"]
+  end
+  CORE -- FeedEvents · ticks --> UI
+  BTN -- commands --> ORCH
+```
 
 ## 3. Vitals module
 
@@ -217,7 +284,7 @@ Honesty note: like arousal, this is a heuristic, listener-relative, tuned on us 
 | `DISTRACTED` | attention state machine (§4b) enters `DISTRACTED`/`OFF_TASK`/`DROWSY`, ≥ 90 s since last interrupt | **yes** — for target *focus* the agent may cut to something more engaging; for *calm* it may leave the music alone and just log the pattern |
 | `REFOCUSED` | back to `FOCUSED` after a distraction | no — book-keeping ping: mark the current track as "pulled them back" in the ledger (may skip the LLM call entirely) |
 
-**Intervention toolbox** — the agent picks **exactly one action tool per ping** (after ≤3 searches if it's going musical). Lightest lever that can work wins; `do_nothing` is a real decision, not a failure:
+**Intervention toolbox** — the agent runs until it ends its own turn (hard stop at 10 model↔tool round-trips) and may compose actions, but the doctrine is **the lightest lever that can work, usually one**. Every ledger entry is stamped with its `pingId`, so effects are attributed per deliberation; `do_nothing` is a real decision, not a failure:
 
 | Tool | What happens | Mechanics | Measured by |
 |---|---|---|---|
@@ -239,6 +306,63 @@ Honesty note: like arousal, this is a heuristic, listener-relative, tuned on us 
 | moderate × `FOCUSED` | **flow** | **`do_nothing`** + protect: DND on, no boundary interrupts, stretch the current lane |
 
 Anti-nag rate limits (the agent must never become the distraction): global 90 s interrupt cooldown (§4) · ≤1 break suggestion per 25 min · ≤1 pacer per 10 min · overlays suppressed while `AWAY`.
+
+### Anatomy of one ping (as implemented in `src/agent/`)
+
+1. A sensor or the player raises a `PingEvent` → `agent.handle()` (`index.ts` → `AgentLoop` in `loop.ts`).
+2. **Gates run before intelligence:** `REFOCUSED` = ledger bookkeeping, zero LLM · boundary with a track already queued = skip · `SPIKE`/`DISTRACTED` inside the interrupt cooldown = skip · events arriving mid-deliberation are coalesced (highest priority kept, rest dropped, `∅` lines in the feed).
+3. `deliberate()` (`deliberate.ts`) builds a fresh **PingRuntime** — pingId, actions list, soft search budget, seen-tracks map — and serializes the session (`prompts.ts`): live vitals vs. *this listener's* baseline, attention state, the full intervention ledger with measured effects, available levers with cooldown timers, interrupt permission.
+4. **One bounded tool-runner call** (`claude-opus-5`, effort low, cache-stable system prompt). The model may search, then must take exactly **one** action tool. Rules are enforced in code, not vibes: a second action is rejected, an unhallucinatable-uri rule (only searched uris queue), repeats/same-artist rejected, cooldowns rejected with the wait time so it picks another lever.
+5. The action executes through `SpotifyPort` / `ActuatorPort` (stubs today; real Spotify at M0-B, overlays/macOS at M2) and lands in the ledger with its listener-visible reason.
+6. **Effect measurement closes the loop:** per-track mean arousal + on-task %, pacer BR before/after, break accept/snooze, `REFOCUSED` crediting the playing track. The *next* ping's context carries those numbers — that is the learning mechanism.
+7. Ending the turn with no action becomes an explicit `do_nothing` ledger entry — restraint is logged, never silent.
+
+Status: **verified end-to-end 2026-09-12** via `npm run loop:fake:auto` (scripted policy over the same tools, no API key needed) — on SPIKE the agent chose the pacer over a track swap and the ledger recorded `BR 17→7`. The real-Claude path is written and awaits the first key for a smoke test.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant S as Sensor / Player / User
+  participant O as Orchestrator · gates
+  participant D as Deliberation · deliberate.ts
+  participant C as Claude opus-5
+  participant T as Toolbox · guards
+  participant W as Spotify / Overlays / macOS
+  participant L as Ledger
+
+  S->>O: PingEvent — SPIKE · TRACK_ENDING · DISTRACTED · NUDGE …
+  alt REFOCUSED
+    O->>L: credit current track, pulled back — zero LLM
+  else gated — cooldown / already queued / coalesced
+    O-->>S: skipped, logged as ∅ in the feed
+  else deliberate
+    O->>D: serialize context — vitals vs baseline · attention ·<br/>ledger with effects · levers + cooldowns · interrupt permission
+    D->>C: one bounded tool-runner call, effort low
+    loop up to 3 searches
+      C->>T: search_spotify_tracks(query)
+      T-->>C: real candidates — only these uris are queueable
+    end
+    C->>T: one or more action tools (usually one)<br/>queue_track / pacer / break / dnd / duck / do_nothing
+    Note over T: guards are code, not vibes —<br/>2nd action rejected · repeats rejected ·<br/>cooldowns rejected with wait time
+    T->>W: execute the lever
+    T->>L: ledger entry + listener-visible reason
+    Note over L: effect measured over time —<br/>arousal Δ · on-task % · BR before/after · accept rate
+    L-->>D: evidence lands in the NEXT ping's context
+  end
+```
+
+### Integrations: how new senses & levers plug in
+
+The toolbox above is just the **built-in** integration set. Any new integration contributes up to four things, and the agent binds them automatically:
+
+| Contribution | What it is | Example (Hue lights) |
+|---|---|---|
+| **tools** | `betaZodTool` defs + run functions — the lever | `set_lights(scene: "bright-cool" \| "warm-dim")` |
+| **doctrine** | 1–3 sentences appended to the system prompt: when to reach for it (this is the "skills" layer) | "Cool bright light aids alertness; warm dim winds down. Pair with, don't replace, a music move." |
+| **context** | one live line for the serializer | `LIGHTS: warm 30%` |
+| **events** | pings it can raise (a sensor role) | calendar: `MEETING_SOON (10 min)` |
+
+**Implemented** (pattern modeled on evanai-client's tool providers): every `.ts` file in `src/agent/tools/` that default-exports an `Integration` is auto-discovered at startup — drop a file in, and its tools, doctrine (assembled into the system prompt), lever-status, context lines, and events are live on the next run. `defineTool()` keeps each tool's `run` typed by its own zod schema; guards (cooldowns, no-repeats, interrupt permission; a soft search budget) are shared helpers in `tools/types.ts`. Caveat noted in `index.ts`: Electron packaging (asar) or a bundler may need discovery swapped for an explicit import list — a one-file change. Flex-shelf candidates: Hue, Calendar, grayscale.
 
 **Call shape** — SDK tool runner, one bounded run per ping (≤ ~4 tool rounds):
 
@@ -292,7 +416,7 @@ CONSTRAINTS: no repeats this session; no same artist back-to-back
 
 **System prompt sketch** (`prompts.ts`):
 
-> You are the focus engine of Attune. Steer the listener toward TARGET one intervention at a time. You receive live physiology vs. their own baseline, an attention state (present / looking at the work / on the stated task, from camera + screen), and a ledger of every intervention's measured effect on both. Pick exactly **one** action tool per ping — the lightest lever that can work; when they're FOCUSED, call do_nothing and protect the streak. Weigh ledger evidence over stereotypes: if their heart rate fell during something, book more like it; if the pacer worked before, reach for it sooner. Music rules: verify tracks via search before queueing (≤3 searches, then one action); for focus, instrumental bias, steady energy, no jarring transitions; never repeat a track; avoid same-artist back-to-back. On DISTRACTED, prefer a track with a clear onset, or DND if the noise is notifications; if the ledger shows a lane that previously pulled attention back, favour it. interrupt=true only when EVENT is SPIKE / USER_NUDGE / TARGET_CHANGED / DISTRACTED. Interventions are invitations, never scolding — no guilt in reasons or nudges; the music or a quiet overlay is the nudge. reason is listener-visible: ≤2 sentences, cite the evidence, no purple prose.
+> You are the focus engine of Attune. Steer the listener toward TARGET one intervention at a time. You receive live physiology vs. their own baseline, an attention state (present / looking at the work / on the stated task, from camera + screen), and a ledger of every intervention's measured effect on both. Prefer the lightest lever that can work, usually one action per ping; compose several only when they clearly belong together; when they're FOCUSED, call do_nothing and protect the streak. Weigh ledger evidence over stereotypes: if their heart rate fell during something, book more like it; if the pacer worked before, reach for it sooner. Music rules: verify tracks via search before queueing (a few searches, then act); for focus, instrumental bias, steady energy, no jarring transitions; never repeat a track; avoid same-artist back-to-back. On DISTRACTED, prefer a track with a clear onset, or DND if the noise is notifications; if the ledger shows a lane that previously pulled attention back, favour it. interrupt=true only when EVENT is SPIKE / USER_NUDGE / TARGET_CHANGED / DISTRACTED. Interventions are invitations, never scolding — no guilt in reasons or nudges; the music or a quiet overlay is the nudge. reason is listener-visible: ≤2 sentences, cite the evidence, no purple prose.
 
 Cost: ~20 pings/hr × (~3k in + ~500 out) ≈ **< $0.40/hr** on Opus 5 before cache hits. Not a factor.
 
@@ -347,6 +471,7 @@ renderer → main: `session:start {target, task, tastePrompt}`, `session:stop`, 
 | Screen on-task check | **M** | ★★☆ | Alt-tab to YouTube → `OFF_TASK` in ≤ 30 s → the agent reacts. Works in mock-vitals mode too, so it survives a Presage failure |
 | Session timeline chart | **M** | ★★☆ | HR curve + attention band + colored track bands; the at-a-glance proof |
 | End-of-session report card | **S** | ★★☆ | One extra Opus call over the ledger (effort: high); great closer |
+| `attune-mcp` facade closer | M | ★★☆ | Expose `get_focus_state` / `get_session_ledger` / `queue_track` / `start_breathing_pacer` / `set_dnd` / long-poll `wait_for_event` over MCP **and** a dumb localhost HTTP route (framework-proof: an OpenClaw skill can just curl it). 20-s closer: a second agent drives Attune — "reflexes local, any agent can be the executive." Only if M1–M3 land early |
 | TTS DJ voice drops | M | ★☆☆ | Stretch-stretch |
 
 **3-minute demo script (draft):** pick Focus + taste note → session starts, calibrating badge, first track plays → show reasoning feed on first boundary → judge does 30 s of mental math / speed-questions → HR climbs on screen → SPIKE → agent cuts in: breathing pacer up + calmer track queued, reason cites the vitals → judge's BR visibly converges to the pacer → judge picks up phone → attention tile flips to DISTRACTED, agent nudges with a reason → judge looks back, tile recovers → timeline shows recovery → stop session → report card (on-task %, look-aways, best track). **Backup:** `VITALS=mock replay` of a real recorded session, camera preview still live, SIMULATED badge shown — narrate honestly.
@@ -359,7 +484,7 @@ renderer → main: `session:start {target, task, tastePrompt}`, `session:stop`, 
 - [ ] C: Anthropic key smoke test — toolRunner with search + a couple of action tools stubbed.
 - [ ] D: demo-laptop sweep — grant camera, Screen Recording, Automation now (never on stage); build the "Attune DND" Shortcut and verify `shortcuts run "Attune DND"` toggles Focus without a confirmation dialog.
 
-**M1 — closed loop on mock vitals** ← *the MVP heartbeat; nothing else matters until this works end-to-end.* Estimator + triggers + agent + real Spotify queueing, console-grade UI.
+**M1 — closed loop on mock vitals** ← *the MVP heartbeat; nothing else matters until this works end-to-end.* Estimator + triggers + agent + queueing, console-grade UI. **✅ agent core done 2026-09-12** on stub Spotify/actuators (`npm run loop:fake:auto`); real-Claude path written — smoke-test the moment a key lands (`export ANTHROPIC_API_KEY=… && npm run loop`); real Spotify swaps in at M0-B.
 **M2 — dashboard** (§6 panels over the IPC events).
 **M3 — real vitals + face:** drop in `smartspectra.ts` with the face group requested, calibrate arousal *and* attention thresholds on humans, test venue lighting early. Verify the free tier actually returns `face.*` (§13) in the first 10 minutes.
 **M3b — attention:** `face.ts` math + `fuse.ts` state machine on mock face samples first (hotkeys), then real; `screen.ts` is independent of Presage and can be built in parallel by whoever finishes M0-C.
@@ -394,6 +519,7 @@ Accounts/multi-user, mobile, persistence beyond a session JSON, our own ML (atte
 - [ ] Screen check: does the judge's laptop have Screen Recording granted, or do we demo on ours only?
 - [ ] Confirm exact `'metrics'` payload field names + `validationStatus` semantics from the quickstart run (M0-A)
 - [ ] `shortcuts run` DND toggle: confirm no per-run confirmation on the demo laptop's macOS version (M0-D)
+- [ ] Facade consumers: what would "the Hermes agent" at the venue actually import (MCP? HTTP? skill scripts)? Same question for OpenClaw's current MCP client story — worst case its skill curls the localhost facade
 - [ ] Pacer defaults: 6 breaths/min × 90 s — right for a stage demo, or shorter?
 - [ ] Team size / who takes M0-A vs M0-B vs M0-C vs M0-D
 - [ ] Name: ship as Attune?
