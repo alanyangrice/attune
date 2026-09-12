@@ -2,7 +2,7 @@
 // Plain Node — opens the system browser (no Electron dependency).
 
 import { createHash, randomBytes } from "node:crypto";
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import http from "node:http";
 
 const REDIRECT_URI = "http://127.0.0.1:8888/callback"; // IP literal — Spotify rejects localhost
@@ -21,13 +21,15 @@ function clientId(): string {
 }
 
 function openBrowser(url: string): void {
-  const cmd =
-    process.platform === "win32"
-      ? `cmd /c start "" "${url.replace(/"/g, "")}"`
-      : process.platform === "darwin"
-        ? `open "${url.replace(/"/g, '\\"')}"`
-        : `xdg-open "${url.replace(/"/g, '\\"')}"`;
-  exec(cmd);
+  let executable = "xdg-open";
+  let args = [url];
+  if (process.platform === "win32") {
+    executable = "rundll32";
+    args = ["url.dll,FileProtocolHandler", url];
+  } else if (process.platform === "darwin") {
+    executable = "open";
+  }
+  execFile(executable, args);
 }
 
 function storeTokens(data: {
