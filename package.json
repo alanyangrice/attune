@@ -9,17 +9,19 @@
     "loop:auto": "tsx src/dev/run-loop.ts --auto",
     "loop:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts",
     "loop:fake:auto": "ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts --auto",
+    "loop:real": "SPOTIFY=real tsx src/dev/run-loop.ts",
+    "loop:real:fake": "SPOTIFY=real ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts",
     "ping": "tsx src/dev/ping.ts",
     "ping:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/ping.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
     "zod": "^4.6.2"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.13.10",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.8.2"
   }
 }

@@ -47,6 +47,8 @@ export const CONFIG = {
   model: process.env.ATTUNE_MODEL ?? "claude-opus-5",
   fakeLlm: process.env.ATTUNE_FAKE_LLM === "1",
   sayEnabled: process.env.ATTUNE_SAY === "1", // voice nudges default OFF (§5)
+  /** stub = canned catalog; real = desktop Spotify Web API (SPOTIFY=real) */
+  spotify: (process.env.SPOTIFY ?? "stub").toLowerCase() === "real" ? "real" : "stub",
 
   // arousal math (design.md §4)
   arousal: {
