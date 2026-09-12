@@ -4,28 +4,23 @@
   "private": true,
   "type": "module",
   "description": "A focus agent that DJs (and more) — HackRice 16",
-  "main": "dist-electron/electron/smoke-main.js",
   "scripts": {
     "loop": "tsx src/dev/run-loop.ts",
     "loop:auto": "tsx src/dev/run-loop.ts --auto",
     "loop:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts",
     "loop:fake:auto": "ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts --auto",
+    "loop:real": "SPOTIFY=real tsx src/dev/run-loop.ts",
+    "loop:real:fake": "SPOTIFY=real ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts",
     "ping": "tsx src/dev/ping.ts",
     "ping:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/ping.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
-    "build:electron": "tsc -p tsconfig.electron.json && node scripts/write-electron-package.cjs",
-    "smoke:spotify": "npm run build:electron && electron dist-electron/electron/smoke-main.js",
-    "smoke:agent": "npm run build:electron && electron dist-electron/electron/smoke-agent.js",
-    "smoke:ipc": "npm run build:electron && electron dist-electron/electron/smoke-ipc.js"
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
-    "dotenv": "^16.4.7",
     "zod": "^4.6.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
-    "electron": "^35.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.2"
   }

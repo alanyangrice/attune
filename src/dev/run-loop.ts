@@ -16,7 +16,7 @@ import { CONFIG } from "../config.js";
 import { ConsoleActuators } from "../adapters/actuators-console.js";
 import { DJSession } from "../memory/session.js";
 import { Estimator } from "../sensors/estimator.js";
-import { StubSpotify } from "../adapters/spotify-stub.js";
+import { createSpotify, spotifyMode } from "../adapters/spotify/index.js";
 import { MockVitalsProvider } from "../sensors/vitals-mock.js";
 import type { AttentionState, FeedEvent, Target } from "../types.js";
 
@@ -40,7 +40,7 @@ const feed = (e: FeedEvent) => print(e.phase === "thinking" || e.phase === "tool
 const session = new DJSession({ target, task, taste });
 const estimator = new Estimator();
 const mock = new MockVitalsProvider();
-const spotify = new StubSpotify();
+const spotify = await createSpotify();
 const act = new ConsoleActuators(print, {
   onPacer: (seconds, bpm) => mock.paceBreathing(bpm, seconds), // biofeedback: the mock body follows the pacer
 });
@@ -62,6 +62,7 @@ spotify.on("trackchange", (t) => {
 spotify.on("ending", (t) =>
   void agent.handle({ kind: "TRACK_ENDING", at: Date.now(), detail: `"${t.name}" ends in ~${CONFIG.trackEndLeadSec}s` }),
 );
+spotify.on("no-device", (msg) => print(`⚠ ${msg}`));
 
 // periodic one-line status (the future vitals/attention tiles)
 setInterval(() => {
@@ -133,7 +134,7 @@ function quit(): void {
 // ── go ─────────────────────────────────────────────────────────────────────
 
 print(
-  `attune loop · mode=${CONFIG.mode} · llm=${CONFIG.fakeLlm ? "FAKE (scripted)" : CONFIG.model} · target=${target} · task="${task}"`,
+  `attune loop · mode=${CONFIG.mode} · spotify=${spotifyMode()} · llm=${CONFIG.fakeLlm ? "FAKE (scripted)" : CONFIG.model} · target=${target} · task="${task}"`,
 );
 print(`integrations: ${agent.integrations.map((i) => i.name).join(", ")}`);
 if (!auto) print("keys: [s]pike [r]ising [c]alm · [p]hone [b]ack · [n]ot-vibing [t]arget [a]ccept-break · [q]uit");

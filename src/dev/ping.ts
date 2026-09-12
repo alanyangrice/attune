@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { createAgent } from "../agent/index.js";
 import { serializeContext } from "../agent/prompts/context.js";
 import { ConsoleActuators } from "../adapters/actuators-console.js";
-import { StubSpotify } from "../adapters/spotify-stub.js";
+import { StubSpotify } from "../adapters/spotify/stub.js";
 import { CONFIG } from "../config.js";
 import { DJSession, type SessionSnapshot } from "../memory/session.js";
 import { INTERRUPT_KINDS, type FeedEvent, type LedgerEntry, type PingKind, type TrackResult } from "../types.js";

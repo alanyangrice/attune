@@ -12,7 +12,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 |---|---|---|
 | 1. Agent core | 🟡 | Loop, gate, tools, ledger, prompts all run on the scripted policy. **Real Claude path has never executed.** |
 | 2. Events / orchestrator | 🟡 | Ping kinds and gate exist; only mock sensors and hotkeys raise pings today. |
-| 3. Spotify | ⬜ | Stub catalog + fake player behind `SpotifyPort`. |
+| 3. Spotify | 🟡 | Stub + **real** adapter behind `SpotifyPort` (`SPOTIFY=real`). |
 | 4. Presage vitals | ⬜ | Mock provider only. `VitalsProvider` port declared. |
 | 5. Attention | ⬜ | State + pings exist; nothing produces them. `AttentionProvider` port declared. |
 | 6. macOS actuators | ⬜ | Console printouts behind `ActuatorPort`. |
@@ -62,15 +62,16 @@ The "when does the agent wake up" layer. Everything here ends in `agent.handle({
 
 Implements `SpotifyPort` (`search`, `queue`, `nowPlaying`, `hasQueued`) and emits `trackchange` / `ending`.
 
-- [ ] Spotify dev app; redirect URI `http://127.0.0.1:8888/callback` (loopback IP literal, not `localhost`).
+- [x] Spotify dev app; redirect URI `http://127.0.0.1:8888/callback` (loopback IP literal, not `localhost`).
 - [ ] **Allowlist every teammate + the demo account in the dashboard on day one** (dev mode, ≤25 users).
-- [ ] `auth.ts`: Authorization Code + PKCE from a one-shot local HTTP listener; refresh tokens.
-- [ ] `client.ts`: `GET /v1/me/player`, `GET /v1/search?type=track`, `POST /v1/me/player/queue`, `POST /v1/me/player/next`.
-- [ ] `player.ts`: 5 s poll → `trackchange` and `ending` events; `hasQueued()` tracks our own queued URI.
-- [ ] Interrupt = queue then immediately `next`. Queue cannot be cleared via API → never queue more than one ahead.
-- [ ] Handle "no active device" 404 → surface a `player:state` error the UI can show ("press play in Spotify").
-- [ ] Seed TASTE from `/me/top/artists` (scope `user-top-read`).
+- [x] `auth.ts`: Authorization Code + PKCE from a one-shot local HTTP listener; refresh tokens.
+- [x] `client.ts`: `GET /v1/me/player`, `GET /v1/search?type=track`, `POST /v1/me/player/queue`, `POST /v1/me/player/next`.
+- [x] `real.ts`: 5 s poll → `trackchange` and `ending` events; `hasQueued()` tracks our own queued URI.
+- [x] Interrupt = queue then immediately `next`. Queue cannot be cleared via API → never queue more than one ahead.
+- [x] Handle "no active device" 404 → `no-device` event ("press play in Spotify").
+- [x] Seed TASTE from `/me/top/artists` available via `RealSpotify.topArtists()` (wire into session start still open).
 - [ ] Verify Premium on the demo account.
+- [x] `SPOTIFY=stub|real` factory; `npm run loop:real` / `loop:real:fake`.
 
 **Not available to new apps:** `/recommendations`, `/audio-features`, `/audio-analysis`. The agent is the recommender; do not spend time discovering this.
 
