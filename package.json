@@ -1,0 +1,23 @@
+{
+  "name": "attune",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A focus agent that DJs (and more) — HackRice 16",
+  "scripts": {
+    "loop": "tsx electron/dev/run-loop.ts",
+    "loop:auto": "tsx electron/dev/run-loop.ts --auto",
+    "loop:fake": "ATTUNE_FAKE_LLM=1 tsx electron/dev/run-loop.ts",
+    "loop:fake:auto": "ATTUNE_FAKE_LLM=1 tsx electron/dev/run-loop.ts --auto",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
