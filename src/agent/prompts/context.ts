@@ -40,6 +40,25 @@ function fmtLedger(session: DJSession): string {
   return rows.length ? rows.map((r, i) => `  ${i + 1}. ${r}`).join("\n") : "  (empty — session just started)";
 }
 
+function fmtLastAction(session: DJSession): string {
+  const stamp = (e: LedgerEntry) => ("startedAt" in e ? e.startedAt : e.at);
+  const last = session.ledger.reduce<LedgerEntry | null>((best, e) => (!best || stamp(e) > stamp(best) ? e : best), null);
+  if (!last) return "LAST ACTION: none yet";
+  const at = stamp(last);
+  const ago = Math.max(0, Math.round((Date.now() - at) / 1000));
+  const what =
+    last.kind === "track"
+      ? `queued "${last.track.name}"${last.endedAt === undefined ? " (now playing)" : ""}`
+      : last.kind === "pacer"
+        ? `started a ${last.seconds}s pacer`
+        : last.kind === "break"
+          ? `suggested a ${last.breakKind} break`
+          : last.kind === "dnd"
+            ? `turned DND ${last.on ? "on" : "off"}`
+            : `held steady (${last.reason})`;
+  return `LAST ACTION: ${what} · ${ago}s ago`;
+}
+
 function mmss(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
@@ -78,6 +97,7 @@ export function serializeContext(
   lines.push(
     `ATTENTION: ${session.attention}${onTask !== undefined ? ` · on-task ${Math.round(onTask * 100)}% this track` : ""} · DND ${session.dndOn ? "on" : "off"}`,
   );
+  lines.push(fmtLastAction(session));
   for (const line of collectContextLines(session)) lines.push(line);
   lines.push(`LEDGER (this session):\n${fmtLedger(session)}`);
   lines.push(`AVAILABLE LEVERS: ${collectLeverStatus(session).join(" · ")}`);

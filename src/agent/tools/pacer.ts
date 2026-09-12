@@ -26,7 +26,7 @@ const integration: Integration = {
   name: "pacer",
   order: 20,
   doctrine:
-    "The pacer is the fastest downshift when arousal is high or rising — breathing converges to it within a minute and heart rate follows. Prefer it over a track swap for acute stress; if the ledger shows it worked on this listener before, reach for it sooner.",
+    "The pacer is the fastest downshift when arousal is high or rising — breathing converges to it within a minute and heart rate follows. Prefer it over a track swap for acute stress; if the ledger shows it worked on this listener before, reach for it sooner. While a pacer is active or just ended, a low breathing rate is the pacer working — not drowsiness, not a reason to energize.",
   tools: [
     defineTool({
       name: "start_breathing_pacer",
@@ -41,6 +41,15 @@ const integration: Integration = {
   leverStatus: (session) => {
     const wait = session.pacerAvailableIn();
     return [wait > 0 ? `start_breathing_pacer on cooldown ${Math.ceil(wait)}s` : "start_breathing_pacer ✓"];
+  },
+  contextLine: (session) => {
+    const last = [...session.ledger].reverse().find((e) => e.kind === "pacer");
+    if (!last || last.kind !== "pacer") return null;
+    const endsAt = last.startedAt + last.seconds * 1000;
+    const now = Date.now();
+    if (now < endsAt) return `PACER: active, ${Math.ceil((endsAt - now) / 1000)}s left at ${last.bpm}/min — breathing is being paced right now`;
+    if (now - endsAt < 90_000) return `PACER: ended ${Math.round((now - endsAt) / 1000)}s ago — breathing may still be settling back toward baseline`;
+    return null;
   },
 };
 

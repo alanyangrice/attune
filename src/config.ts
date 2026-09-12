@@ -37,7 +37,7 @@ const TIMINGS = {
     interruptCooldownSec: 20,
     pacerCooldownSec: 45,
     breakCooldownSec: 60,
-    trackEndLeadSec: 10,
+    trackEndLeadSec: 15, // real deliberations take 7–10 s; 10 s was too tight
     trackSecondsCap: 40, // stub tracks "play" at most 40s so the loop cycles
   },
 }[MODE];
