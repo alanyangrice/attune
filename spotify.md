@@ -71,7 +71,8 @@ spotifyClient.getTopArtists(limit = 10)  // GET /v1/me/top/artists → TASTE see
 
 All requests go through `fetchSpotify`, which attaches
 `Authorization: Bearer <accessToken>` (via `ensureAccessToken`) and throws on
-non-2xx responses. `204` / `404` become `NoActiveDeviceError`.
+non-2xx responses. `GET /me/player` → `204`/`404` become `NoActiveDeviceError`.
+`POST` queue/next → `204` is success (empty body).
 
 ### Constraints this wrapper is designed around (see design.md §8)
 
@@ -149,6 +150,7 @@ terminal for `player:state` / `queue:ok` / `player:no-device`.
 - [x] Add `getTopArtists()` for TASTE seeding.
 - [x] M0-B Electron smoke harness (`electron/smoke-main.ts`, `npm run smoke:spotify`).
 - [x] Agent music tools + M0-C smoke (`agent/tools.ts`, `npm run smoke:agent`).
+- [x] Typed `ipc.ts` + preload + player UI smoke (`npm run smoke:ipc`).
 - [ ] Persist tokens across main-process restarts if demos need re-auth-free
       relaunches (in-memory is fine for a single session).
-- [ ] Wire `playerEvents` / `spotifyClient` through `ipc.ts` and agent tools.
+- [ ] Mock vitals + estimator → ping agent on `track_ending` (M1).

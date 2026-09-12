@@ -10,29 +10,56 @@ export class NoActiveDeviceError extends Error {
 
 async function fetchSpotify(endpoint: string, options: RequestInit = {}) {
   const token = await ensureAccessToken();
+  const method = (options.method ?? 'GET').toUpperCase();
   const res = await fetch(`https://api.spotify.com${endpoint}`, {
     ...options,
     headers: {
+      Accept: 'application/json',
       ...options.headers,
       Authorization: `Bearer ${token}`,
     },
   });
 
-  // GET /me/player returns 204 when nothing is playing / no device.
-  // Control endpoints often return 404 for the same condition.
-  if (res.status === 204) {
-    throw new NoActiveDeviceError();
-  }
+  // 404 → usually no active device on player endpoints.
   if (res.status === 404) {
     throw new NoActiveDeviceError(`Spotify API 404: ${endpoint}`);
   }
+
+  // 204 No Content:
+  //   GET  /me/player  → nothing playing / no device
+  //   POST /queue|/next → success (empty body) — must NOT treat as an error
+  if (res.status === 204) {
+    if (method === 'GET' && endpoint.startsWith('/v1/me/player')) {
+      throw new NoActiveDeviceError();
+    }
+    return null;
+  }
+
   if (!res.ok) {
-    throw new Error(`Spotify API error: ${res.status} ${res.statusText}`);
+    const errBody = await res.text().catch(() => '');
+    throw new Error(
+      `Spotify API error: ${res.status} ${res.statusText}${errBody ? ` — ${errBody}` : ''}`,
+    );
   }
 
   const text = await res.text();
-  return text ? JSON.parse(text) : null;
+  if (!text) return null;
+
+  const ct = res.headers.get('content-type') ?? '';
+  if (!ct.includes('application/json')) {
+    // Success with a non-JSON body (some player POSTs) — treat as empty.
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Spotify returned invalid JSON (${res.status}): ${text.slice(0, 80)}`,
+    );
+  }
 }
+
 
 export const spotifyClient = {
   async search(query: string, limit: number = 5) {

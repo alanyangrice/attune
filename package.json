@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "smoke:spotify": "tsc && electron .",
-    "smoke:agent": "tsc && electron dist/electron/smoke-agent.js"
+    "smoke:agent": "tsc && electron dist/electron/smoke-agent.js",
+    "smoke:ipc": "tsc && electron dist/electron/smoke-ipc.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
