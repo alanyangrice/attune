@@ -3,7 +3,7 @@
 // `say`). Same port, printed effects — plus optional hooks so the dev
 // harness can wire the mock vitals to *react* (pacer → BR converges).
 
-import type { ActuatorPort } from "../types.js";
+import type { ActuatorPort } from "../ports.js";
 
 export interface ActuatorHooks {
   onPacer?: (seconds: number, bpm: number) => void;

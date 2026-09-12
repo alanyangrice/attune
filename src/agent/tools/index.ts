@@ -8,7 +8,7 @@ import { readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
-import type { DJSession } from "../../state/session.js";
+import type { DJSession } from "../../memory/session.js";
 import type { PingEvent } from "../../types.js";
 import type { AttuneTool, Integration, PingRuntime } from "./types.js";
 

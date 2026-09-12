@@ -13,11 +13,11 @@
 import readline from "node:readline";
 import { createAgent } from "../agent/index.js";
 import { CONFIG } from "../config.js";
-import { ConsoleActuators } from "../interventions/stub.js";
-import { DJSession } from "../state/session.js";
-import { Estimator } from "../state/estimator.js";
-import { StubSpotify } from "../spotify/stub.js";
-import { MockVitalsProvider } from "../vitals/mock.js";
+import { ConsoleActuators } from "../adapters/actuators-console.js";
+import { DJSession } from "../memory/session.js";
+import { Estimator } from "../sensors/estimator.js";
+import { StubSpotify } from "../adapters/spotify-stub.js";
+import { MockVitalsProvider } from "../sensors/vitals-mock.js";
 import type { AttentionState, FeedEvent, Target } from "../types.js";
 
 const auto = process.argv.includes("--auto");

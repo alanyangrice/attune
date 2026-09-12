@@ -8,7 +8,7 @@
 //   …
 //   agent.stop();
 
-import type { DJSession } from "../state/session.js";
+import type { DJSession } from "../memory/session.js";
 import type { PingEvent } from "../types.js";
 import { type AgentDeps } from "./deliberate.js";
 import { AgentLoop } from "./loop.js";

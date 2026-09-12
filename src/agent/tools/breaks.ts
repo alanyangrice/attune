@@ -1,10 +1,9 @@
 // Adaptive breaks: break when physiology says so, not when a timer does.
 
 import { z } from "zod";
-import { ALREADY_ACTED, decide, defineTool, type Integration, type PingRuntime } from "./types.js";
+import { decide, defineTool, type Integration, type PingRuntime } from "./types.js";
 
 function brk(kind: string, minutes: number, reason: string, rt: PingRuntime): string {
-  if (rt.actionTaken) return ALREADY_ACTED;
   const wait = rt.session.breakAvailableIn();
   if (wait > 0) return `Break suggestion on cooldown for ${Math.ceil(wait)}s — choose another lever.`;
   rt.session.addBreak(kind, minutes, reason);

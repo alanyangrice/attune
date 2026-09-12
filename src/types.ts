@@ -81,6 +81,7 @@ export interface NowPlaying {
 export type LedgerEntry =
   | {
       kind: "track";
+      pingId?: string; // deliberation that produced this entry (attribution is per ping)
       track: TrackResult;
       reason: string;
       startedAt: number;
@@ -92,6 +93,7 @@ export type LedgerEntry =
     }
   | {
       kind: "pacer";
+      pingId?: string; // deliberation that produced this entry (attribution is per ping)
       seconds: number;
       bpm: number;
       startedAt: number;
@@ -101,6 +103,7 @@ export type LedgerEntry =
     }
   | {
       kind: "break";
+      pingId?: string; // deliberation that produced this entry (attribution is per ping)
       breakKind: string;
       minutes: number;
       reason: string;
@@ -108,27 +111,8 @@ export type LedgerEntry =
       response: "accepted" | "snoozed" | "ignored" | "pending";
       arousalDelta?: number;
     }
-  | { kind: "dnd"; on: boolean; at: number }
-  | { kind: "nothing"; reason: string; at: number };
-
-// ── ports (implemented by stubs now, Electron/real services later) ────────
-
-export interface SpotifyPort {
-  search(query: string, limit: number): Promise<TrackResult[]>;
-  /** queue next; interrupt=true also skips the current track immediately */
-  queue(track: TrackResult, interrupt: boolean): Promise<void>;
-  nowPlaying(): NowPlaying | null;
-  /** whether we already queued something for the upcoming boundary */
-  hasQueued(): boolean;
-}
-
-export interface ActuatorPort {
-  startPacer(seconds: number, bpm: number): void;
-  suggestBreak(kind: string, minutes: number, reason: string): void;
-  setDnd(on: boolean): Promise<void>;
-  duckVolume(pct: number, seconds: number): void;
-  say(text: string): void;
-}
+  | { kind: "dnd"; pingId?: string; on: boolean; at: number }
+  | { kind: "nothing"; pingId?: string; reason: string; at: number };
 
 // ── feed: what the UI (or console) shows about the agent's inner life ─────
 
@@ -140,7 +124,7 @@ export interface FeedEvent {
 
 export type FeedSink = (e: FeedEvent) => void;
 
-/** The one action the deliberation settled on (for cooldown bookkeeping). */
+/** One action taken during a deliberation (a ping may take several). */
 export interface Decision {
   action: "queue_track" | "pacer" | "break" | "dnd" | "duck" | "say" | "nothing";
   interrupted: boolean;

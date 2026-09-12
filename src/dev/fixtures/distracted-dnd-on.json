@@ -1,0 +1,79 @@
+{
+  "target": "focus",
+  "task": "reading for HIST 201",
+  "taste": "lofi is fine; no vocals",
+  "elapsedSec": 1500,
+  "attention": "DISTRACTED",
+  "dndOn": true,
+  "lastInterruptAtSec": 1300,
+  "latest": {
+    "ts": 0,
+    "arousal": -0.03,
+    "band": "calm",
+    "hr": 69,
+    "br": 12,
+    "baselineHr": 71,
+    "baselineBr": 13,
+    "calibrated": true
+  },
+  "ledger": [
+    {
+      "kind": "track",
+      "track": {
+        "uri": "stub:track:snowfall",
+        "name": "Snowfall",
+        "artists": [
+          "Øneheart"
+        ],
+        "durationSec": 130,
+        "popularity": 60
+      },
+      "reason": "Opening calm.",
+      "startedAt": 0,
+      "endedAt": 130,
+      "meanArousal": 0.0,
+      "onTaskFraction": 0.8
+    },
+    {
+      "kind": "dnd",
+      "on": true,
+      "at": 600
+    },
+    {
+      "kind": "track",
+      "track": {
+        "uri": "stub:track:midnight-city",
+        "name": "Midnight City",
+        "artists": [
+          "M83"
+        ],
+        "durationSec": 244,
+        "popularity": 60
+      },
+      "reason": "Attention drifted — a clear onset to pull you back.",
+      "startedAt": 1300,
+      "endedAt": 1440,
+      "meanArousal": 0.04,
+      "onTaskFraction": 0.4,
+      "pulledBack": true
+    },
+    {
+      "kind": "track",
+      "track": {
+        "uri": "stub:track:night-owl",
+        "name": "Night Owl",
+        "artists": [
+          "Galimatias"
+        ],
+        "durationSec": 218,
+        "popularity": 60
+      },
+      "reason": "(queued outside agent)",
+      "startedAt": 1440
+    }
+  ],
+  "nowPlaying": {
+    "uri": "stub:track:night-owl",
+    "positionSec": 60
+  }
+}

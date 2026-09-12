@@ -1,10 +1,10 @@
 // Restraint as a first-class lever.
 
 import { z } from "zod";
-import { ALREADY_ACTED, decide, defineTool, type Integration, type PingRuntime } from "./types.js";
+import { decide, defineTool, type Integration, type PingRuntime } from "./types.js";
 
 function nothing(reason: string, rt: PingRuntime): string {
-  if (rt.actionTaken) return ALREADY_ACTED;
+  if (rt.actions.length) return "You already acted this ping — do_nothing only makes sense on its own. Just end your turn.";
   rt.session.addNothing(reason);
   rt.feed({ ts: Date.now(), phase: "decision", text: `— holding steady: ${reason}` });
   decide(rt, { action: "nothing", interrupted: false });

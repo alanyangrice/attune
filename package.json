@@ -5,10 +5,12 @@
   "type": "module",
   "description": "A focus agent that DJs (and more) — HackRice 16",
   "scripts": {
-    "loop": "tsx electron/dev/run-loop.ts",
-    "loop:auto": "tsx electron/dev/run-loop.ts --auto",
-    "loop:fake": "ATTUNE_FAKE_LLM=1 tsx electron/dev/run-loop.ts",
-    "loop:fake:auto": "ATTUNE_FAKE_LLM=1 tsx electron/dev/run-loop.ts --auto",
+    "loop": "tsx src/dev/run-loop.ts",
+    "loop:auto": "tsx src/dev/run-loop.ts --auto",
+    "loop:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts",
+    "loop:fake:auto": "ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts --auto",
+    "ping": "tsx src/dev/ping.ts",
+    "ping:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/ping.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -5,7 +5,8 @@
 
 import { EventEmitter } from "node:events";
 import { CONFIG } from "../config.js";
-import type { NowPlaying, SpotifyPort, TrackResult } from "../types.js";
+import type { NowPlaying, TrackResult } from "../types.js";
+import type { SpotifyPort } from "../ports.js";
 
 interface CatalogRow extends TrackResult {
   tags: string[];
@@ -89,6 +90,18 @@ export class StubSpotify extends EventEmitter implements SpotifyPort {
   async queue(track: TrackResult, interrupt: boolean): Promise<void> {
     this.queued = track;
     if (interrupt || !this.now) this.advance();
+  }
+
+  /** fixtures / tests: pretend `track` has been playing for positionSec (no clock needed) */
+  setNowPlaying(track: TrackResult, positionSec: number, queued: TrackResult | null = null): void {
+    this.now = {
+      track,
+      startedAt: Date.now() - positionSec * 1000,
+      positionSec,
+      cap: Math.min(track.durationSec, CONFIG.trackSecondsCap),
+      endingEmitted: false,
+    };
+    this.queued = queued;
   }
 
   nowPlaying(): NowPlaying | null {

@@ -4,7 +4,7 @@
 // REFOCUSED never costs an LLM call. Construct via createAgent() in index.ts.
 
 import { deliberate, type AgentDeps } from "./deliberate.js";
-import type { DJSession } from "../state/session.js";
+import type { DJSession } from "../memory/session.js";
 import type { PingEvent, PingKind } from "../types.js";
 
 const PRIORITY: Record<PingKind, number> = {

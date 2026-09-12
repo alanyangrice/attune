@@ -9,15 +9,9 @@
 // per_conversation_state); DJSession = per-session durable state.
 
 import type { z } from "zod";
-import type { DJSession } from "../../state/session.js";
-import type {
-  ActuatorPort,
-  Decision,
-  FeedSink,
-  PingEvent,
-  SpotifyPort,
-  TrackResult,
-} from "../../types.js";
+import type { DJSession } from "../../memory/session.js";
+import type { Decision, FeedSink, PingEvent, TrackResult } from "../../types.js";
+import type { ActuatorPort, SpotifyPort } from "../../ports.js";
 
 export interface PingRuntime {
   session: DJSession;
@@ -26,19 +20,19 @@ export interface PingRuntime {
   feed: FeedSink;
   event: PingEvent;
   interruptAllowed: boolean;
-  searchesLeft: number;
-  actionTaken: boolean;
-  decision: Decision | null;
+  /** id stamped onto every ledger entry this deliberation produces */
+  pingId: string;
+  /** searches so far this ping (soft budget → nudge, never a refusal) */
+  searches: number;
+  /** every action taken this ping, in order; the model decides when it is done */
+  actions: Decision[];
   /** uris surfaced by search this ping — the only queueable ones */
   seen: Map<string, TrackResult>;
 }
 
-export const ALREADY_ACTED = "You already took your action this ping — end your turn.";
-
-/** mark the ping's one action as taken */
+/** record one action; tools may be composed, the runner stops when the model ends its turn */
 export function decide(rt: PingRuntime, decision: Decision): void {
-  rt.actionTaken = true;
-  rt.decision = decision;
+  rt.actions.push(decision);
 }
 
 export interface AttuneTool<S extends z.ZodTypeAny = z.ZodTypeAny> {

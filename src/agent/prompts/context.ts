@@ -3,8 +3,9 @@
 // integrations show up here without touching this file.
 
 import { collectContextLines, collectLeverStatus } from "../tools/index.js";
-import type { DJSession } from "../../state/session.js";
-import type { LedgerEntry, PingEvent, SpotifyPort } from "../../types.js";
+import type { DJSession } from "../../memory/session.js";
+import type { LedgerEntry, PingEvent } from "../../types.js";
+import type { SpotifyPort } from "../../ports.js";
 
 function fmtTrackRow(e: Extract<LedgerEntry, { kind: "track" }>, current: boolean): string {
   const bits = [`"${e.track.name}" — ${e.track.artists.join(", ")}`];

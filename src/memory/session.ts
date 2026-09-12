@@ -16,6 +16,21 @@ export interface SessionConfig {
   target: Target;
   task: string; // "orgo chapter 7 problem set"
   taste: string; // free text: "mostly instrumental; likes Radiohead"
+  /** override the clock (fixtures / restore); defaults to now */
+  startedAt?: number;
+}
+
+/** Plain-data view of a session: what a SessionStore persists and what
+ *  dev/ping.ts fixtures describe. Timestamps are epoch ms. */
+export interface SessionSnapshot extends SessionConfig {
+  startedAt: number;
+  ledger: LedgerEntry[];
+  latest: ArousalSnapshot | null;
+  attention: AttentionState;
+  dndOn: boolean;
+  lastInterruptAt: number;
+  lastPacerAt: number;
+  lastBreakAt: number;
 }
 
 interface TrackAccumulator {
@@ -27,7 +42,7 @@ interface TrackAccumulator {
 }
 
 export class DJSession {
-  readonly startedAt = Date.now();
+  readonly startedAt: number;
   readonly ledger: LedgerEntry[] = [];
 
   target: Target;
@@ -39,7 +54,10 @@ export class DJSession {
   dndOn = false;
 
   /** set by the queue_track tool; consumed when playback actually flips */
-  pendingQueue: { track: TrackResult; reason: string } | null = null;
+  pendingQueue: { track: TrackResult; reason: string; pingId?: string } | null = null;
+
+  /** set by deliberate() for the duration of a ping; stamped onto ledger entries */
+  currentPingId: string | null = null;
 
   // cooldown bookkeeping (design.md §5 anti-nag limits)
   lastInterruptAt = 0;
@@ -53,6 +71,44 @@ export class DJSession {
     this.target = cfg.target;
     this.task = cfg.task;
     this.taste = cfg.taste;
+    this.startedAt = cfg.startedAt ?? Date.now();
+  }
+
+  // ── snapshot / restore ───────────────────────────────────────────────────
+
+  toSnapshot(): SessionSnapshot {
+    return {
+      target: this.target,
+      task: this.task,
+      taste: this.taste,
+      startedAt: this.startedAt,
+      ledger: structuredClone(this.ledger),
+      latest: this.latest,
+      attention: this.attention,
+      dndOn: this.dndOn,
+      lastInterruptAt: this.lastInterruptAt,
+      lastPacerAt: this.lastPacerAt,
+      lastBreakAt: this.lastBreakAt,
+    };
+  }
+
+  /** Rebuild a live session from a snapshot. A trailing track entry without
+   *  endedAt becomes the current track (its accumulator restarts). */
+  static fromSnapshot(snap: SessionSnapshot): DJSession {
+    const s = new DJSession(snap);
+    s.ledger.push(...structuredClone(snap.ledger));
+    s.latest = snap.latest;
+    s.attention = snap.attention;
+    s.dndOn = snap.dndOn;
+    s.lastInterruptAt = snap.lastInterruptAt;
+    s.lastPacerAt = snap.lastPacerAt;
+    s.lastBreakAt = snap.lastBreakAt;
+    for (const e of s.ledger) if (e.kind === "track") s.playedUris.add(e.track.uri);
+    const last = s.ledger[s.ledger.length - 1];
+    if (last?.kind === "track" && last.endedAt === undefined) {
+      s.current = { entry: last, sumArousal: 0, n: 0, onTask: 0, attnSamples: 0 };
+    }
+    return s;
   }
 
   // ── sensing ticks (1 Hz) ─────────────────────────────────────────────────
@@ -80,12 +136,13 @@ export class DJSession {
 
   onTrackChange(track: TrackResult): void {
     const prevMean = this.closeCurrentTrack();
-    const reason = this.pendingQueue?.track.uri === track.uri ? this.pendingQueue.reason : "(queued outside agent)";
+    const mine = this.pendingQueue?.track.uri === track.uri ? this.pendingQueue : null;
     this.pendingQueue = null;
     const entry: Extract<LedgerEntry, { kind: "track" }> = {
       kind: "track",
+      pingId: mine?.pingId,
       track,
-      reason,
+      reason: mine?.reason ?? "(queued outside agent)",
       startedAt: Date.now(),
     };
     this.ledger.push(entry);
@@ -119,6 +176,7 @@ export class DJSession {
   addPacer(seconds: number, bpm: number): Extract<LedgerEntry, { kind: "pacer" }> {
     const entry: Extract<LedgerEntry, { kind: "pacer" }> = {
       kind: "pacer",
+      pingId: this.currentPingId ?? undefined,
       seconds,
       bpm,
       startedAt: Date.now(),
@@ -137,6 +195,7 @@ export class DJSession {
   addBreak(breakKind: string, minutes: number, reason: string): Extract<LedgerEntry, { kind: "break" }> {
     const entry: Extract<LedgerEntry, { kind: "break" }> = {
       kind: "break",
+      pingId: this.currentPingId ?? undefined,
       breakKind,
       minutes,
       reason,
@@ -157,11 +216,11 @@ export class DJSession {
 
   addDnd(on: boolean): void {
     this.dndOn = on;
-    this.ledger.push({ kind: "dnd", on, at: Date.now() });
+    this.ledger.push({ kind: "dnd", pingId: this.currentPingId ?? undefined, on, at: Date.now() });
   }
 
   addNothing(reason: string): void {
-    this.ledger.push({ kind: "nothing", reason, at: Date.now() });
+    this.ledger.push({ kind: "nothing", pingId: this.currentPingId ?? undefined, reason, at: Date.now() });
   }
 
   // ── constraints the tools enforce / the prompt cites ────────────────────

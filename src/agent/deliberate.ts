@@ -6,16 +6,9 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { CONFIG } from "../config.js";
-import type { DJSession } from "../state/session.js";
-import {
-  INTERRUPT_KINDS,
-  type ActuatorPort,
-  type Decision,
-  type FeedSink,
-  type PingEvent,
-  type SpotifyPort,
-  type Target,
-} from "../types.js";
+import type { DJSession } from "../memory/session.js";
+import { INTERRUPT_KINDS, type Decision, type FeedSink, type PingEvent, type Target } from "../types.js";
+import type { ActuatorPort, SpotifyPort } from "../ports.js";
 import { serializeContext } from "./prompts/context.js";
 import { systemPrompt } from "./prompts/system.js";
 import { buildRunnerTools, callTool } from "./tools/index.js";
@@ -33,8 +26,10 @@ function getClient(): Anthropic {
   return client;
 }
 
-export async function deliberate(session: DJSession, event: PingEvent, deps: AgentDeps): Promise<Decision> {
+export async function deliberate(session: DJSession, event: PingEvent, deps: AgentDeps): Promise<Decision[]> {
   const interruptAllowed = INTERRUPT_KINDS.has(event.kind);
+  const pingId = `${event.kind.toLowerCase()}-${event.at}`;
+  session.currentPingId = pingId;
   const rt: PingRuntime = {
     session,
     spotify: deps.spotify,
@@ -42,9 +37,9 @@ export async function deliberate(session: DJSession, event: PingEvent, deps: Age
     feed: deps.feed,
     event,
     interruptAllowed,
-    searchesLeft: CONFIG.maxSearchesPerPing,
-    actionTaken: false,
-    decision: null,
+    pingId,
+    searches: 0,
+    actions: [],
     seen: new Map(),
   };
   const t0 = Date.now();
@@ -61,6 +56,7 @@ export async function deliberate(session: DJSession, event: PingEvent, deps: Age
       const final = await getClient().beta.messages.toolRunner({
         model: CONFIG.model,
         max_tokens: 2048,
+        max_iterations: CONFIG.maxIterationsPerPing, // hard stop; the model normally ends its own turn
         output_config: { effort: "low" },
         betas: ["server-side-fallback-2026-06-01"],
         fallbacks: [{ model: "claude-opus-4-8" }], // auto-fallback if a request is safety-declined
@@ -68,8 +64,8 @@ export async function deliberate(session: DJSession, event: PingEvent, deps: Age
         tools: buildRunnerTools(rt),
         messages: [{ role: "user", content: serializeContext(session, event, deps.spotify, interruptAllowed) }],
       });
-      if (!rt.actionTaken) {
-        // model ended its turn without an action tool → that's an implicit hold
+      if (rt.actions.length === 0) {
+        // model ended its turn without any action tool → that's an implicit hold
         const text = final.content
           .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
           .map((b) => b.text)
@@ -85,13 +81,15 @@ export async function deliberate(session: DJSession, event: PingEvent, deps: Age
       phase: "error",
       text: `✗ deliberation failed: ${err instanceof Error ? err.message : String(err)}`,
     });
-    if (!rt.actionTaken) await callTool(rt, "do_nothing", { reason: "deliberation failed — holding as-is" });
+    if (rt.actions.length === 0) await callTool(rt, "do_nothing", { reason: "deliberation failed — holding as-is" });
+  } finally {
+    session.currentPingId = null;
   }
 
-  const decision = rt.decision ?? { action: "nothing", interrupted: false };
-  if (decision.interrupted) session.lastInterruptAt = Date.now();
-  deps.feed({ ts: Date.now(), phase: "info", text: `  resolved in ${((Date.now() - t0) / 1000).toFixed(1)}s` });
-  return decision;
+  if (rt.actions.some((a) => a.interrupted)) session.lastInterruptAt = Date.now();
+  const summary = rt.actions.map((a) => a.action).join(" + ") || "nothing";
+  deps.feed({ ts: Date.now(), phase: "info", text: `  resolved in ${((Date.now() - t0) / 1000).toFixed(1)}s · ${summary}` });
+  return rt.actions;
 }
 
 // ── scripted stand-in policy (mirrors design.md §5 "state → move class") ──
@@ -104,13 +102,14 @@ async function fakeDeliberate(rt: PingRuntime): Promise<void> {
   const band = session.latest?.band ?? "calm";
 
   const pick = async (query: string, interrupt: boolean, reason: string): Promise<boolean> => {
+    const before = rt.actions.length;
     const results = await spotify.search(query, 8);
     for (const t of results) rt.seen.set(t.uri, t);
     const last = session.lastArtists();
     const c = results.find((t) => !session.alreadyPlayed(t.uri) && !t.artists.some((a) => last.includes(a)));
     if (!c) return false;
     await callTool(rt, "queue_track", { uri: c.uri, reason, interrupt });
-    return rt.actionTaken;
+    return rt.actions.length > before;
   };
   const hold = (reason: string) => callTool(rt, "do_nothing", { reason });
 

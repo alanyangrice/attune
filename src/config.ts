@@ -58,7 +58,8 @@ export const CONFIG = {
   },
 
   // deliberation
-  maxSearchesPerPing: 3,
+  softSearchBudget: 3, // searches past this get a nudge in the tool result, never a refusal
+  maxIterationsPerPing: 10, // hard stop on model↔tool round-trips per ping
   deliberationTimeoutMs: 30_000,
 
   ...TIMINGS,

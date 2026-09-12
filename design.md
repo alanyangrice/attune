@@ -17,7 +17,7 @@
 | Spotify | **Premium, drive the real desktop Spotify app** via Web API (`/me/player`) | Least code, real sound from the laptop, most reliable live |
 | Recommender | **The agent itself picks the exact next track** (verifies via Spotify search), with visible reasoning | Spotify killed `/recommendations` + `/audio-features` for new apps (Nov 2024) — Claude's music knowledge replaces them, and it's the better demo anyway |
 | Agent model | `claude-opus-5` via `@anthropic-ai/sdk` tool runner | Deliberation quality *is* the product; at ~20 calls/hour cost is pennies |
-| Scope pivot (2026-09-12) | Agent optimizes **attention, not just music**: one action per ping from an **intervention toolbox** (§5); music stays the backbone | Music is one lever on attention; the other levers demo on faster timescales (breathing converges in ~1 min, distraction reacts in seconds), and explicit `do_nothing` makes restraint visible |
+| Scope pivot (2026-09-12) | Agent optimizes **attention, not just music**: a few deliberate actions per ping (usually one) from an **intervention toolbox** (§5); music stays the backbone | Music is one lever on attention; the other levers demo on faster timescales (breathing converges in ~1 min, distraction reacts in seconds), and explicit `do_nothing` makes restraint visible |
 | Packaging | **Standalone agent first**; toolbox optionally exposed later via an `attune-mcp` + plain-HTTP facade on localhost (§9, flex) | The reflex loop (spike → act in ~2 s, 1 Hz fusion) needs in-process latency no external harness gives; the facade is a thin adapter over `tools.ts` and turns the sensor/actuator stack into a platform story — reflexes local, executive agents (OpenClaw etc.) optional on top |
 | Backend split | **The TS agent core IS the backend**: a headless Node service (`agent/`, `state/`, sensors, actuators — zero Electron imports, provable via the console harness), hosted by Electron main at M2; the renderer is a thin client (feed + charts + 5 commands) | Considered a Python backend and rejected for the weekend: Presage ships no Python SDK, so Python still needs a Node vitals sidecar — two runtimes, an extra hop, and a rewrite of a working agent core for zero capability gain. Revisit only if the team is decisively Python-strong; then port just the brain (deliberate/prompts) behind the same event contract |
 | Demo-moment priorities | **Open** — menu in §9, pick at the table after M1 | Team call once the core loop exists |
@@ -31,7 +31,7 @@
    │                                                          │
    ▼                                                          │
  webcam ──► SmartSpectra SDK ──► State Estimator ──► ping ──► Focus Agent (Claude)
-            (HR, BR, HRV, face,  (arousal §4 +        ▲        │  one action per ping (§5):
+            (HR, BR, HRV, face,  (arousal §4 +        ▲        │  lightest lever(s) per ping (§5):
              continuous)          attention §4b)      │        │  • search → queue_track
                                                       │        │  • breathing pacer · break
             track-ending / spike / distracted /       │        │  • set_dnd · duck · do_nothing
@@ -45,23 +45,31 @@ Two more sensor channels feed the same estimator (§4b): **face metrics** from t
 
 The agent is a **long-running session, not a long-running conversation**: a `DJSession` object lives in the Electron main process for the whole session and holds the durable state (target, baseline, intervention ledger). Each *ping* runs one bounded agentic call (Claude + tool loop, ~5s) over that state. Stateless calls over durable state = crash-safe, no context bloat, easy to replay/debug — and the ledger (tracks, pacer runs, breaks, each with its measured effect) *is* the agent's memory.
 
-## 2. Architecture (Electron)
+## 2. Architecture
 
 ```
 attune/
-  electron/                     # main process (Node 20+, TypeScript)
-    main.ts                     #   boot + module wiring
-    vitals/
-      provider.ts               #   VitalsProvider interface + types
-      smartspectra.ts           #   real adapter (@smartspectra/node-sdk)
-      mock.ts                   #   scripted / replay / manual mock
-    state/
+  src/                          # THE BACKEND: plain Node/TS, zero Electron imports (runs headless via src/dev/*)
+    types.ts                    #   data contracts: events, ledger, samples, decisions
+    ports.ts                    #   boundary interfaces: SpotifyPort, ActuatorPort, VitalsProvider, AttentionProvider, SessionStore
+    config.ts                   #   every threshold; demo / real timing profiles
+    memory/
+      session.ts                #   DJSession: target, task, ledger; toSnapshot()/fromSnapshot()
+      store.ts                  #   (next) SessionStore impl: sessions/*.json → PRIOR SESSIONS context
+    sensors/                    #   the orchestrator side — produces samples + pings (deferred; mock today)
       estimator.ts              #   baseline, arousal, spike detection
-      session.ts                #   DJSession: target, task, ledger, event log
-    attention/
-      face.ts                   #   landmarks → head pose, gaze, blink rate, stillness (pure math)
-      screen.ts                 #   desktopCapturer → downscaled JPEG → Claude on-task verdict
-      fuse.ts                   #   face + screen → attention score + state machine (§4b)
+      vitals-mock.ts            #   scripted / manual mock VitalsProvider
+      smartspectra.ts           #   (M3) real VitalsProvider (@smartspectra/node-sdk)
+      attention/                #   (M3b) face.ts, screen.ts, fuse.ts → AttentionProvider (§4b)
+    adapters/                   #   port implementations
+      spotify-stub.ts           #   canned catalog + fake player clock
+      actuators-console.ts      #   printed effects
+      spotify/                  #   (M0-B) auth.ts (PKCE), client.ts, player.ts (5 s poll)
+      actuators-macos.ts        #   (M2) pacer window, break card, DND via `shortcuts`, osascript volume, `say`
+    dev/
+      ping.ts                   #   one-shot harness: fixture + one ping → context, tool calls, decision
+      run-loop.ts               #   full closed loop on mock sensors
+      fixtures/*.json           #   scenario snapshots (timestamps in seconds since session start)
     agent/
       index.ts                  #   createAgent(session, deps) → { handle, integrations, stop } — the only import for entry points
       loop.ts                   #   AgentLoop: the gate (priority, cooldowns, one deliberation in flight)
@@ -73,17 +81,9 @@ attune/
         types.ts                #   Integration/AttuneTool contract + PingRuntime + guards
         index.ts                #   registry: discovery, runner binding, doctrine/status collection
         spotify.ts pacer.ts breaks.ts system.ts core.ts   # built-ins
-    interventions/
-      pacer.ts                  #   breathing-pacer overlay window (frameless, always-on-top)
-      breaks.ts                 #   break card overlay + accept/snooze plumbing
-      system.ts                 #   macOS levers: DND via `shortcuts run`, volume via osascript, optional `say`
-    spotify/
-      auth.ts                   #   Authorization Code + PKCE, token refresh
-      client.ts                 #   thin fetch wrapper
-      player.ts                 #   5s poll loop → PlayerState events
-    ipc.ts                      #   typed channel contract (see §7)
-  src/                          # renderer (React + Vite)
-    App.tsx, panels/*           #   dashboard (see §6)
+  electron/                     # (M2) thin host: main.ts wires src/ + IPC; overlay windows for pacer / break card
+    main.ts                     #   createAgent() + sensors + adapters; ipc.ts typed channels (§7)
+  renderer/                     # (M2) React + Vite dashboard (§6)
   design.md
 ```
 
@@ -111,7 +111,7 @@ flowchart LR
     PLAYER["Player poll 5s"]
     ORCH["Orchestrator<br/>gates · cooldowns · priorities"]
     DJ["Deliberation<br/>claude-opus-5 tool runner"]
-    TOOLS["Toolbox · one action per ping<br/>queue_track · pacer · break<br/>dnd · duck · say · do_nothing"]
+    TOOLS["Toolbox · lightest lever, usually one<br/>queue_track · pacer · break<br/>dnd · duck · say · do_nothing"]
     LEDGER[("Intervention ledger<br/>measured effects")]
     ORCH --> DJ --> TOOLS --> LEDGER
     LEDGER -. evidence in next context .-> DJ
@@ -284,7 +284,7 @@ Honesty note: like arousal, this is a heuristic, listener-relative, tuned on us 
 | `DISTRACTED` | attention state machine (§4b) enters `DISTRACTED`/`OFF_TASK`/`DROWSY`, ≥ 90 s since last interrupt | **yes** — for target *focus* the agent may cut to something more engaging; for *calm* it may leave the music alone and just log the pattern |
 | `REFOCUSED` | back to `FOCUSED` after a distraction | no — book-keeping ping: mark the current track as "pulled them back" in the ledger (may skip the LLM call entirely) |
 
-**Intervention toolbox** — the agent picks **exactly one action tool per ping** (after ≤3 searches if it's going musical). Lightest lever that can work wins; `do_nothing` is a real decision, not a failure:
+**Intervention toolbox** — the agent runs until it ends its own turn (hard stop at 10 model↔tool round-trips) and may compose actions, but the doctrine is **the lightest lever that can work, usually one**. Every ledger entry is stamped with its `pingId`, so effects are attributed per deliberation; `do_nothing` is a real decision, not a failure:
 
 | Tool | What happens | Mechanics | Measured by |
 |---|---|---|---|
@@ -307,11 +307,11 @@ Honesty note: like arousal, this is a heuristic, listener-relative, tuned on us 
 
 Anti-nag rate limits (the agent must never become the distraction): global 90 s interrupt cooldown (§4) · ≤1 break suggestion per 25 min · ≤1 pacer per 10 min · overlays suppressed while `AWAY`.
 
-### Anatomy of one ping (as implemented in `electron/agent/`)
+### Anatomy of one ping (as implemented in `src/agent/`)
 
 1. A sensor or the player raises a `PingEvent` → `agent.handle()` (`index.ts` → `AgentLoop` in `loop.ts`).
 2. **Gates run before intelligence:** `REFOCUSED` = ledger bookkeeping, zero LLM · boundary with a track already queued = skip · `SPIKE`/`DISTRACTED` inside the interrupt cooldown = skip · events arriving mid-deliberation are coalesced (highest priority kept, rest dropped, `∅` lines in the feed).
-3. `deliberate()` (`deliberate.ts`) builds a fresh **PingRuntime** — one-action flag, 3-search budget, seen-tracks map — and serializes the session (`prompts.ts`): live vitals vs. *this listener's* baseline, attention state, the full intervention ledger with measured effects, available levers with cooldown timers, interrupt permission.
+3. `deliberate()` (`deliberate.ts`) builds a fresh **PingRuntime** — pingId, actions list, soft search budget, seen-tracks map — and serializes the session (`prompts.ts`): live vitals vs. *this listener's* baseline, attention state, the full intervention ledger with measured effects, available levers with cooldown timers, interrupt permission.
 4. **One bounded tool-runner call** (`claude-opus-5`, effort low, cache-stable system prompt). The model may search, then must take exactly **one** action tool. Rules are enforced in code, not vibes: a second action is rejected, an unhallucinatable-uri rule (only searched uris queue), repeats/same-artist rejected, cooldowns rejected with the wait time so it picks another lever.
 5. The action executes through `SpotifyPort` / `ActuatorPort` (stubs today; real Spotify at M0-B, overlays/macOS at M2) and lands in the ledger with its listener-visible reason.
 6. **Effect measurement closes the loop:** per-track mean arousal + on-task %, pacer BR before/after, break accept/snooze, `REFOCUSED` crediting the playing track. The *next* ping's context carries those numbers — that is the learning mechanism.
@@ -342,7 +342,7 @@ sequenceDiagram
       C->>T: search_spotify_tracks(query)
       T-->>C: real candidates — only these uris are queueable
     end
-    C->>T: exactly ONE action tool<br/>queue_track / pacer / break / dnd / duck / do_nothing
+    C->>T: one or more action tools (usually one)<br/>queue_track / pacer / break / dnd / duck / do_nothing
     Note over T: guards are code, not vibes —<br/>2nd action rejected · repeats rejected ·<br/>cooldowns rejected with wait time
     T->>W: execute the lever
     T->>L: ledger entry + listener-visible reason
@@ -362,7 +362,7 @@ The toolbox above is just the **built-in** integration set. Any new integration 
 | **context** | one live line for the serializer | `LIGHTS: warm 30%` |
 | **events** | pings it can raise (a sensor role) | calendar: `MEETING_SOON (10 min)` |
 
-**Implemented** (pattern modeled on evanai-client's tool providers): every `.ts` file in `electron/agent/tools/` that default-exports an `Integration` is auto-discovered at startup — drop a file in, and its tools, doctrine (assembled into the system prompt), lever-status, context lines, and events are live on the next run. `defineTool()` keeps each tool's `run` typed by its own zod schema; guards (one action per ping, cooldowns, search budget) are shared helpers in `tools/types.ts`. Caveat noted in `index.ts`: Electron packaging (asar) or a bundler may need discovery swapped for an explicit import list — a one-file change. Flex-shelf candidates: Hue, Calendar, grayscale.
+**Implemented** (pattern modeled on evanai-client's tool providers): every `.ts` file in `src/agent/tools/` that default-exports an `Integration` is auto-discovered at startup — drop a file in, and its tools, doctrine (assembled into the system prompt), lever-status, context lines, and events are live on the next run. `defineTool()` keeps each tool's `run` typed by its own zod schema; guards (cooldowns, no-repeats, interrupt permission; a soft search budget) are shared helpers in `tools/types.ts`. Caveat noted in `index.ts`: Electron packaging (asar) or a bundler may need discovery swapped for an explicit import list — a one-file change. Flex-shelf candidates: Hue, Calendar, grayscale.
 
 **Call shape** — SDK tool runner, one bounded run per ping (≤ ~4 tool rounds):
 
@@ -416,7 +416,7 @@ CONSTRAINTS: no repeats this session; no same artist back-to-back
 
 **System prompt sketch** (`prompts.ts`):
 
-> You are the focus engine of Attune. Steer the listener toward TARGET one intervention at a time. You receive live physiology vs. their own baseline, an attention state (present / looking at the work / on the stated task, from camera + screen), and a ledger of every intervention's measured effect on both. Pick exactly **one** action tool per ping — the lightest lever that can work; when they're FOCUSED, call do_nothing and protect the streak. Weigh ledger evidence over stereotypes: if their heart rate fell during something, book more like it; if the pacer worked before, reach for it sooner. Music rules: verify tracks via search before queueing (≤3 searches, then one action); for focus, instrumental bias, steady energy, no jarring transitions; never repeat a track; avoid same-artist back-to-back. On DISTRACTED, prefer a track with a clear onset, or DND if the noise is notifications; if the ledger shows a lane that previously pulled attention back, favour it. interrupt=true only when EVENT is SPIKE / USER_NUDGE / TARGET_CHANGED / DISTRACTED. Interventions are invitations, never scolding — no guilt in reasons or nudges; the music or a quiet overlay is the nudge. reason is listener-visible: ≤2 sentences, cite the evidence, no purple prose.
+> You are the focus engine of Attune. Steer the listener toward TARGET one intervention at a time. You receive live physiology vs. their own baseline, an attention state (present / looking at the work / on the stated task, from camera + screen), and a ledger of every intervention's measured effect on both. Prefer the lightest lever that can work, usually one action per ping; compose several only when they clearly belong together; when they're FOCUSED, call do_nothing and protect the streak. Weigh ledger evidence over stereotypes: if their heart rate fell during something, book more like it; if the pacer worked before, reach for it sooner. Music rules: verify tracks via search before queueing (a few searches, then act); for focus, instrumental bias, steady energy, no jarring transitions; never repeat a track; avoid same-artist back-to-back. On DISTRACTED, prefer a track with a clear onset, or DND if the noise is notifications; if the ledger shows a lane that previously pulled attention back, favour it. interrupt=true only when EVENT is SPIKE / USER_NUDGE / TARGET_CHANGED / DISTRACTED. Interventions are invitations, never scolding — no guilt in reasons or nudges; the music or a quiet overlay is the nudge. reason is listener-visible: ≤2 sentences, cite the evidence, no purple prose.
 
 Cost: ~20 pings/hr × (~3k in + ~500 out) ≈ **< $0.40/hr** on Opus 5 before cache hits. Not a factor.
 

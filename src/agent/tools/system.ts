@@ -2,10 +2,9 @@
 
 import { z } from "zod";
 import { CONFIG } from "../../config.js";
-import { ALREADY_ACTED, decide, defineTool, type AttuneTool, type Integration, type PingRuntime } from "./types.js";
+import { decide, defineTool, type AttuneTool, type Integration, type PingRuntime } from "./types.js";
 
 async function dnd(on: boolean, rt: PingRuntime): Promise<string> {
-  if (rt.actionTaken) return ALREADY_ACTED;
   if (rt.session.dndOn === on) return `DND is already ${on ? "on" : "off"} — choose another action.`;
   rt.session.addDnd(on);
   await rt.act.setDnd(on);
@@ -15,7 +14,6 @@ async function dnd(on: boolean, rt: PingRuntime): Promise<string> {
 }
 
 function duck(pct: number, seconds: number, rt: PingRuntime): string {
-  if (rt.actionTaken) return ALREADY_ACTED;
   rt.act.duckVolume(pct, seconds);
   rt.feed({ ts: Date.now(), phase: "decision", text: `▂ volume ducked to ${pct}% for ${seconds}s` });
   decide(rt, { action: "duck", interrupted: false });
@@ -23,7 +21,6 @@ function duck(pct: number, seconds: number, rt: PingRuntime): string {
 }
 
 function say(text: string, rt: PingRuntime): string {
-  if (rt.actionTaken) return ALREADY_ACTED;
   rt.act.say(text);
   rt.feed({ ts: Date.now(), phase: "decision", text: `🗣 "${text}"` });
   decide(rt, { action: "say", interrupted: false });

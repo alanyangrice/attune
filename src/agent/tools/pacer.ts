@@ -1,10 +1,9 @@
 // Breathing pacer: the fastest visible closed loop we have (design.md §5, §9).
 
 import { z } from "zod";
-import { ALREADY_ACTED, decide, defineTool, type Integration, type PingRuntime } from "./types.js";
+import { decide, defineTool, type Integration, type PingRuntime } from "./types.js";
 
 function pacer(seconds: number, bpm: number, rt: PingRuntime): string {
-  if (rt.actionTaken) return ALREADY_ACTED;
   const wait = rt.session.pacerAvailableIn();
   if (wait > 0) return `Pacer on cooldown for ${Math.ceil(wait)}s — choose another lever.`;
   const entry = rt.session.addPacer(seconds, bpm);

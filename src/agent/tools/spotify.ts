@@ -1,16 +1,16 @@
 // Music integration: the backbone lever (search is info, queue is the action).
 
 import { z } from "zod";
-import { ALREADY_ACTED, decide, defineTool, type Integration, type PingRuntime } from "./types.js";
+import { CONFIG } from "../../config.js";
+import { decide, defineTool, type Integration, type PingRuntime } from "./types.js";
 
 async function search(query: string, limit: number, rt: PingRuntime): Promise<string> {
-  if (rt.actionTaken) return ALREADY_ACTED;
-  if (rt.searchesLeft <= 0) return "Search budget exhausted — decide now with what you have.";
-  rt.searchesLeft -= 1;
+  rt.searches += 1;
   const results = await rt.spotify.search(query, limit);
   for (const t of results) rt.seen.set(t.uri, t);
   rt.feed({ ts: Date.now(), phase: "tool", text: `⌕ search "${query}" → ${results.length} result(s)` });
   if (!results.length) return "No results — try different terms.";
+  const nudge = rt.searches >= CONFIG.softSearchBudget ? `\n(${rt.searches} searches this ping — decide with what you have.)` : "";
   return JSON.stringify(
     results.map((t) => ({
       uri: t.uri,
@@ -20,11 +20,10 @@ async function search(query: string, limit: number, rt: PingRuntime): Promise<st
       popularity: t.popularity,
       alreadyPlayed: rt.session.alreadyPlayed(t.uri) || undefined,
     })),
-  );
+  ) + nudge;
 }
 
 async function queue(uri: string, reason: string, interrupt: boolean, rt: PingRuntime): Promise<string> {
-  if (rt.actionTaken) return ALREADY_ACTED;
   const track = rt.seen.get(uri);
   if (!track) return "Unknown uri — only uris returned by search_spotify_tracks this ping can be queued.";
   if (rt.session.alreadyPlayed(uri)) return "Already played this session — pick another track.";
@@ -36,7 +35,7 @@ async function queue(uri: string, reason: string, interrupt: boolean, rt: PingRu
     interrupt = false;
     note = " Interrupt not allowed for this event — queued for the next boundary instead.";
   }
-  rt.session.pendingQueue = { track, reason };
+  rt.session.pendingQueue = { track, reason, pingId: rt.pingId };
   await rt.spotify.queue(track, interrupt);
   rt.feed({
     ts: Date.now(),
@@ -51,7 +50,7 @@ const integration: Integration = {
   name: "spotify",
   order: 10,
   doctrine:
-    "Music is the backbone lever. Verify tracks via search_spotify_tracks before queueing — only searched uris are queueable, at most 3 searches, then act. For focus: instrumental bias, steady energy, no jarring transitions. Never repeat a track this session; avoid the same artist back-to-back. On DISTRACTED prefer a track with a clear onset; if the ledger shows a lane that pulled attention back, favour it.",
+    "Music is the backbone lever. Verify tracks via search_spotify_tracks before queueing — only searched uris are queueable; keep searches to two or three, then act. For focus: instrumental bias, steady energy, no jarring transitions. Never repeat a track this session; avoid the same artist back-to-back. On DISTRACTED prefer a track with a clear onset; if the ledger shows a lane that pulled attention back, favour it.",
   tools: [
     defineTool({
       name: "search_spotify_tracks",
@@ -66,7 +65,7 @@ const integration: Integration = {
     defineTool({
       name: "queue_track",
       description:
-        "Queue the chosen track as your one action. reason is shown to the listener (≤2 sentences, cite the evidence). interrupt=true skips the current track immediately (only when the EVENT allows interrupts).",
+        "Queue the chosen track. reason is shown to the listener (≤2 sentences, cite the evidence). interrupt=true skips the current track immediately (only when the EVENT allows interrupts).",
       inputSchema: z.object({
         uri: z.string(),
         reason: z.string(),

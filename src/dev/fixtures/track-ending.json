@@ -1,0 +1,73 @@
+{
+  "target": "focus",
+  "task": "orgo chapter 7 problem set",
+  "taste": "mostly instrumental; likes Bonobo and film scores; no country",
+  "elapsedSec": 900,
+  "attention": "FOCUSED",
+  "dndOn": false,
+  "latest": {
+    "ts": 0,
+    "arousal": 0.02,
+    "band": "calm",
+    "hr": 70,
+    "br": 13,
+    "baselineHr": 71,
+    "baselineBr": 13,
+    "calibrated": true
+  },
+  "ledger": [
+    {
+      "kind": "track",
+      "track": {
+        "uri": "stub:track:time",
+        "name": "Time",
+        "artists": [
+          "Hans Zimmer"
+        ],
+        "durationSec": 275,
+        "popularity": 60
+      },
+      "reason": "Opening in the focus lane.",
+      "startedAt": 0,
+      "endedAt": 275,
+      "meanArousal": 0.05,
+      "onTaskFraction": 0.9
+    },
+    {
+      "kind": "track",
+      "track": {
+        "uri": "stub:track:cobblestone",
+        "name": "Cobblestone",
+        "artists": [
+          "Bonobo"
+        ],
+        "durationSec": 260,
+        "popularity": 60
+      },
+      "reason": "HR settled during the last instrumental — staying in that lane.",
+      "startedAt": 275,
+      "endedAt": 535,
+      "meanArousal": 0.01,
+      "deltaVsPrev": -0.04,
+      "onTaskFraction": 0.95
+    },
+    {
+      "kind": "track",
+      "track": {
+        "uri": "stub:track:kiara",
+        "name": "Kiara",
+        "artists": [
+          "Bonobo"
+        ],
+        "durationSec": 233,
+        "popularity": 60
+      },
+      "reason": "(queued outside agent)",
+      "startedAt": 535
+    }
+  ],
+  "nowPlaying": {
+    "uri": "stub:track:kiara",
+    "positionSec": 210
+  }
+}
