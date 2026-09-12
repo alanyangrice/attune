@@ -1,0 +1,19 @@
+{
+  "name": "attune",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "camera:test": "tsx electron/vitals/camera-smoke.ts"
+  },
+  "dependencies": {
+    "@smartspectra/node-sdk": "^3.2.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
