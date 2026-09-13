@@ -13,8 +13,8 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | 1. Agent core | 🟡 | Loop, gate, tools, ledger, prompts all run on the scripted policy. **Real Claude path has never executed.** |
 | 2. Events / orchestrator | 🟡 | Ping kinds and gate exist; only mock sensors and hotkeys raise pings today. |
 | 3. Spotify | 🟡 | Stub + **real** adapter behind `SpotifyPort` (`SPOTIFY=real`). |
-| 4. Presage vitals | ⬜ | Mock provider only. `VitalsProvider` port declared. |
-| 5. Attention | ⬜ | State + pings exist; nothing produces them. `AttentionProvider` port declared. |
+| 4. Presage vitals | 🟡 | `SmartSpectraProvider` behind `createVitals()`; emits 1 Hz samples + face; `VITALS=real npm run loop`. Needs venue testing. |
+| 5. Attention | 🟡 | `attention/face.ts` computes yaw/pitch/gaze features from landmarks. No fusion, no calibration, no pings yet. |
 | 6. macOS actuators | ⬜ | Console printouts behind `ActuatorPort`. |
 | 7. Electron shell + IPC | ⬜ | Nothing. `src/` is plain Node and must stay that way. |
 | 8. Frontend UI | ⬜ | Nothing. Design in §6. |

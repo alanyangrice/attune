@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "A focus agent that DJs (and more) — HackRice 16",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "loop": "tsx src/dev/run-loop.ts",
     "loop:auto": "tsx src/dev/run-loop.ts --auto",
@@ -13,15 +16,18 @@
     "loop:real:fake": "SPOTIFY=real ATTUNE_FAKE_LLM=1 tsx src/dev/run-loop.ts",
     "ping": "tsx src/dev/ping.ts",
     "ping:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/ping.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "loop:vitals": "VITALS=real tsx src/dev/run-loop.ts",
+    "vitals:smoke": "tsx src/dev/vitals-smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
+    "@smartspectra/node-sdk": "^3.2.0",
     "zod": "^4.6.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
-    "tsx": "^4.19.0",
-    "typescript": "^5.8.2"
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
   }
 }

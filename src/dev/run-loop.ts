@@ -18,7 +18,7 @@ import { ConsoleActuators } from "../adapters/actuators-console.js";
 import { createSpotify } from "../adapters/spotify/index.js";
 import { DJSession } from "../memory/session.js";
 import { Estimator } from "../sensors/estimator.js";
-import { MockVitalsProvider } from "../sensors/vitals-mock.js";
+import { createVitals, MockVitalsProvider } from "../sensors/index.js";
 import type { AttentionState, FeedEvent, Target } from "../types.js";
 import { mmss } from "../util.js";
 import { argOf, flag } from "./args.js";
@@ -41,16 +41,20 @@ const feed = (e: FeedEvent) => print(e.phase === "thinking" || e.phase === "tool
 
 const session = new DJSession({ target, task, taste });
 const estimator = new Estimator();
-const mock = new MockVitalsProvider();
+const vitals = createVitals();
+const mock = vitals instanceof MockVitalsProvider ? vitals : null; // stress hotkeys + pacer biofeedback only make sense on the mock body
 const spotify = await createSpotify();
 const act = new ConsoleActuators(print, {
-  onPacer: (seconds, bpm) => mock.paceBreathing(bpm, seconds), // biofeedback: the mock body follows the pacer
+  onPacer: (seconds, bpm) => mock?.paceBreathing(bpm, seconds), // biofeedback: the mock body follows the pacer
 });
 const agent = await createAgent(session, { spotify, act, feed });
 
 let attention: AttentionState = "UNKNOWN";
 
-mock.on("sample", (s) => estimator.feed(s));
+vitals.on("sample", (s) => estimator.feed(s));
+vitals.on("status", (s) => print(`· vitals ${s}`));
+vitals.on("warning", (msg) => print(`⚠ camera: ${msg}`));
+vitals.on("error", (err) => print(`✗ vitals: ${err.message}`));
 estimator.on("state", (snap) => session.tick(snap, attention));
 estimator.on("calibrated", (hr, br) => {
   attention = "FOCUSED";
@@ -98,20 +102,19 @@ function summary(): void {
 function quit(): void {
   summary();
   agent.stop();
-  mock.stop();
   spotify.stop();
-  process.exit(0);
+  void Promise.resolve(vitals.stop()).finally(() => process.exit(0));
 }
 
 // ── go ─────────────────────────────────────────────────────────────────────
 
 print(
-  `attune loop · mode=${CONFIG.mode} · spotify=${CONFIG.spotify} · llm=${CONFIG.fakeLlm ? "FAKE (scripted)" : CONFIG.model} · target=${target} · task="${task}"`,
+  `attune loop · mode=${CONFIG.mode} · vitals=${CONFIG.vitals} · spotify=${CONFIG.spotify} · llm=${CONFIG.fakeLlm ? "FAKE (scripted)" : CONFIG.model} · target=${target} · task="${task}"`,
 );
 print(`integrations: ${agent.integrations.map((i) => i.name).join(", ")}`);
 if (!auto) print("keys: [s]pike [r]ising [c]alm · [p]hone [b]ack · [n]ot-vibing [t]arget [a]ccept-break · [q]uit");
 
-mock.start();
+await vitals.start();
 spotify.start();
 void agent.handle({ kind: "SESSION_START", at: Date.now(), detail: `target ${target}; task "${task}"` });
 
@@ -119,11 +122,11 @@ if (auto) {
   const at = (sec: number, fn: () => void) => setTimeout(fn, sec * 1000).unref();
   at(20, () => {
     print("‹auto› stress rising (mental math starts)");
-    mock.setStress("rising");
+    mock?.setStress("rising");
   });
   at(28, () => {
     print("‹auto› full spike");
-    mock.setStress("spike");
+    mock?.setStress("spike");
   });
   at(80, () => {
     print("‹auto› picks up phone");
@@ -144,9 +147,9 @@ if (auto) {
   process.stdin.on("keypress", (_str, key: { name?: string; ctrl?: boolean }) => {
     if (key.ctrl && key.name === "c") return quit();
     switch (key.name) {
-      case "s": print("‹key› spike"); mock.setStress("spike"); break;
-      case "r": print("‹key› rising"); mock.setStress("rising"); break;
-      case "c": print("‹key› calm"); mock.setStress("calm"); break;
+      case "s": print("‹key› spike"); mock?.setStress("spike"); break;
+      case "r": print("‹key› rising"); mock?.setStress("rising"); break;
+      case "c": print("‹key› calm"); mock?.setStress("calm"); break;
       case "p": print("‹key› phone"); distracted("looking down 12s (phone signature)"); break;
       case "b": print("‹key› back on task"); refocused(); break;
       case "n": void agent.handle({ kind: "USER_NUDGE", at: Date.now(), detail: "listener hit the Not Vibing button" }); break;

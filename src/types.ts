@@ -18,8 +18,21 @@ export interface VitalsSample {
   ts: number; // epoch ms
   hr: number; // bpm
   br: number; // breaths/min
-  hrv?: number;
+  hrv?: number; // RMSSD, ms
+  eda?: number; // electrodermal activity trace, arbitrary units
   confidence: number; // 0..1
+}
+
+/** Raw face metrics passed through from the camera at ~10 Hz (design.md §3, §4b). */
+export interface FaceSample {
+  ts: number;
+  /** 478 MediaPipe points, pixel coords; absent = no face */
+  landmarks?: { x: number; y: number }[];
+  stable: boolean;
+  blinking: boolean;
+  talking: boolean;
+  /** expression class → confidence % */
+  expression?: Record<string, number>;
 }
 
 export interface ArousalSnapshot {

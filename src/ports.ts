@@ -5,7 +5,7 @@
 // own, it arrives through a port declared in this file.
 
 import type { EventEmitter } from "node:events";
-import type { AttentionState, NowPlaying, PingEvent, TrackResult, VitalsSample } from "./types.js";
+import type { AttentionState, FaceSample, NowPlaying, PingEvent, TrackResult, VitalsSample } from "./types.js";
 
 // ── music ────────────────────────────────────────────────────────────────
 
@@ -47,13 +47,17 @@ export interface ActuatorPort {
 // ── sensors (produce samples and pings; the deferred orchestrator side) ──
 
 export type VitalsEvents = {
-  sample: [sample: VitalsSample]; // ~1 Hz
+  sample: [sample: VitalsSample]; // 1 Hz, only when hr and br are both present
+  face: [sample: FaceSample]; // ~10 Hz when the face group is requested
   status: [status: "calibrating" | "ok" | "low-confidence" | "simulated"];
+  /** measurement hints from the sensor ("face not centered", "too dark") — informational */
+  warning: [message: string];
+  error: [err: Error];
 };
 
 export interface VitalsProvider extends EventEmitter<VitalsEvents> {
   start(): void | Promise<void>;
-  stop(): void;
+  stop(): void | Promise<void>;
 }
 
 export type AttentionEvents = {

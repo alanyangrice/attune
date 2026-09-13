@@ -8,6 +8,7 @@ Study-session agent: webcam vitals + attention (Presage SmartSpectra) → Claude
 - `npm run ping -- ...` — same with real Claude (`ANTHROPIC_API_KEY` in `.env`).
 - `npm run loop:fake:auto` — full closed loop with mock sensors, scripted policy, exits after ~2.5 min. Run before every commit.
 - `npm run loop:fake` — interactive hotkeys (s/r/c stress, p phone, b back, n not-vibing, t target, q quit). `npm run loop` for real Claude.
+- `npm run loop:vitals` — same loop on the real camera (`VITALS=real`, needs `PRESAGE_API_KEY`). `npm run vitals:smoke -- --seconds=20` prints raw camera output through the port.
 - `npm run typecheck` — must be clean.
 
 ## Layout (src/) — the backend; plain Node, zero Electron imports
@@ -16,7 +17,7 @@ Study-session agent: webcam vitals + attention (Presage SmartSpectra) → Claude
 - `agent/` — `index.ts` (`createAgent()`, the only import for entry points) → `loop.ts` (the gate: priority, cooldowns, one deliberation in flight) → `deliberate.ts` (one bounded tool-runner call, or the fake policy) → `tools/` (one integration per file: tools + doctrine + lever status) + `prompts/` (stable system prompt, per-ping context).
 - `memory/session.ts` — `DJSession`: per-session durable state; the ledger is the agent's memory. `toSnapshot()` / `fromSnapshot()` are the persistence and fixture surface.
 - `adapters/` — implementations of ports: `spotify/` (stub + real behind `createSpotify()`), `actuators-console.ts`; real ones drop in beside them.
-- `sensors/` — what produces samples and pings (the orchestrator side, deferred): `vitals-mock.ts`, `estimator.ts`.
+- `sensors/` — what produces samples and pings: `index.ts` (`createVitals()`, mock|real), `vitals-mock.ts`, `smartspectra.ts` (real camera, 1 Hz samples + ~10 Hz face), `estimator.ts`, `attention/face.ts` (landmarks → features; `fuse.ts` next).
 - `dev/` — `ping.ts` (one-shot harness), `run-loop.ts` (full demo), `fixtures/`.
 
 ## Adding things

@@ -4,7 +4,7 @@
 // once, not every run.
 
 import { createHash, randomBytes } from "node:crypto";
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 
@@ -33,13 +33,15 @@ function clientId(): string {
 }
 
 function openBrowser(url: string): void {
-  const cmd =
-    process.platform === "win32"
-      ? `cmd /c start "" "${url.replace(/"/g, "")}"`
-      : process.platform === "darwin"
-        ? `open "${url.replace(/"/g, '\\"')}"`
-        : `xdg-open "${url.replace(/"/g, '\\"')}"`;
-  exec(cmd);
+  let executable = "xdg-open";
+  let args = [url];
+  if (process.platform === "win32") {
+    executable = "rundll32";
+    args = ["url.dll,FileProtocolHandler", url];
+  } else if (process.platform === "darwin") {
+    executable = "open";
+  }
+  execFile(executable, args);
 }
 
 function loadSavedRefreshToken(): string {
