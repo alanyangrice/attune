@@ -19,7 +19,7 @@ try {
   /* no .env — fine */
 }
 
-const MODE = (process.env.ATTUNE_MODE ?? "demo") as "demo" | "real";
+const MODE = process.env.ATTUNE_MODE === "real" ? "real" : "demo";
 
 const TIMINGS = {
   real: {
@@ -49,6 +49,19 @@ export const CONFIG = {
   sayEnabled: process.env.ATTUNE_SAY === "1", // voice nudges default OFF (§5)
   /** stub = canned catalog; real = desktop Spotify Web API (SPOTIFY=real) */
   spotify: (process.env.SPOTIFY ?? "stub").toLowerCase() === "real" ? "real" : "stub",
+  /** mock = scripted body; real = SmartSpectra camera (VITALS=real) */
+  vitals: (process.env.VITALS ?? "mock").toLowerCase() === "real" ? "real" : "mock",
+  /** Presage SmartSpectra key (their docs call it SMARTSPECTRA_API_KEY; either name works) */
+  presageApiKey: process.env.PRESAGE_API_KEY ?? process.env.SMARTSPECTRA_API_KEY ?? "",
+
+  // camera → face features (design.md §4b); ratios are relative to the face box, not calibrated yet
+  attention: {
+    gazeLeftBelow: 0.35, // iris x within the eye box
+    gazeRightAbove: 0.65,
+    headAwayYaw: 0.2, // |nose offset between cheeks − 0.5|
+    headDownPitch: 0.65, // nose position between eye line and chin
+    faceHz: 10, // face samples per second delivered to attention
+  },
 
   // arousal math (design.md §4)
   arousal: {
@@ -66,5 +79,3 @@ export const CONFIG = {
 
   ...TIMINGS,
 } as const;
-
-export type Config = typeof CONFIG;

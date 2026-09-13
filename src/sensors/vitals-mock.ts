@@ -5,6 +5,7 @@
 // visible end-to-end before the Presage key exists.
 
 import { EventEmitter } from "node:events";
+import type { VitalsEvents, VitalsProvider } from "../ports.js";
 import type { VitalsSample } from "../types.js";
 
 export type StressLevel = "calm" | "rising" | "spike";
@@ -15,11 +16,7 @@ const TARGETS: Record<StressLevel, { hr: number; br: number }> = {
   spike: { hr: 88, br: 18 },
 };
 
-export declare interface MockVitalsProvider {
-  on(event: "sample", listener: (s: VitalsSample) => void): this;
-}
-
-export class MockVitalsProvider extends EventEmitter {
+export class MockVitalsProvider extends EventEmitter<VitalsEvents> implements VitalsProvider {
   private hr = 70;
   private br = 13;
   private level: StressLevel = "calm";
@@ -29,6 +26,7 @@ export class MockVitalsProvider extends EventEmitter {
 
   start(): void {
     if (this.timer) return;
+    this.emit("status", "simulated");
     this.timer = setInterval(() => this.tick(), 1000);
   }
 

@@ -1,11 +1,11 @@
 // Adaptive breaks: break when physiology says so, not when a timer does.
 
 import { z } from "zod";
-import { decide, defineTool, type Integration, type PingRuntime } from "./types.js";
+import { cooldownRefusal, decide, defineTool, leverStatus, type Integration, type PingRuntime } from "./types.js";
 
 function brk(kind: string, minutes: number, reason: string, rt: PingRuntime): string {
   const wait = rt.session.breakAvailableIn();
-  if (wait > 0) return `Break suggestion on cooldown for ${Math.ceil(wait)}s — choose another lever.`;
+  if (wait > 0) return cooldownRefusal("Break suggestion", wait);
   rt.session.addBreak(kind, minutes, reason);
   rt.act.suggestBreak(kind, minutes, reason);
   rt.feed({ ts: Date.now(), phase: "decision", text: `☕ suggested ${kind} break (${minutes} min): ${reason}` });
@@ -30,10 +30,7 @@ const integration: Integration = {
       run: (i, rt) => brk(i.kind, i.minutes, i.reason, rt),
     }),
   ],
-  leverStatus: (session) => {
-    const wait = session.breakAvailableIn();
-    return [wait > 0 ? `suggest_break on cooldown ${Math.ceil(wait)}s` : "suggest_break ✓"];
-  },
+  leverStatus: (session) => [leverStatus("suggest_break", session.breakAvailableIn())],
 };
 
 export default integration;

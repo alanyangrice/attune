@@ -13,13 +13,13 @@ function median(xs: number[]): number {
   return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
-export declare interface Estimator {
-  on(event: "state", listener: (s: ArousalSnapshot) => void): this;
-  on(event: "spike", listener: (detail: string) => void): this;
-  on(event: "calibrated", listener: (baselineHr: number, baselineBr: number) => void): this;
-}
+type EstimatorEvents = {
+  state: [snapshot: ArousalSnapshot];
+  spike: [detail: string];
+  calibrated: [baselineHr: number, baselineBr: number];
+};
 
-export class Estimator extends EventEmitter {
+export class Estimator extends EventEmitter<EstimatorEvents> {
   private calWindow: VitalsSample[] = [];
   private baselineHr = 0;
   private baselineBr = 0;
@@ -30,8 +30,6 @@ export class Estimator extends EventEmitter {
   private highSince: number | null = null;
   private spikeArmed = true; // re-arms after arousal falls back under "elevated"
   private spikeSustainedFor = 0;
-
-  latest: ArousalSnapshot | null = null;
 
   feed(s: VitalsSample): void {
     if (s.confidence < 0.6) return; // gate junk frames; UI shows low-confidence separately
@@ -78,7 +76,7 @@ export class Estimator extends EventEmitter {
   private push(s: VitalsSample, arousal: number): void {
     const { calmBelow, highAtOrAbove } = CONFIG.arousal;
     const band = arousal < calmBelow ? "calm" : arousal < highAtOrAbove ? "elevated" : "high";
-    this.latest = {
+    this.emit("state", {
       ts: s.ts,
       arousal,
       band,
@@ -87,7 +85,6 @@ export class Estimator extends EventEmitter {
       baselineHr: this.baselineHr,
       baselineBr: this.baselineBr,
       calibrated: this.calibrated,
-    };
-    this.emit("state", this.latest);
+    });
   }
 }

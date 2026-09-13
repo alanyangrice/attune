@@ -64,7 +64,6 @@ attune/
     adapters/                   #   port implementations
       spotify-stub.ts           #   canned catalog + fake player clock
       actuators-console.ts      #   printed effects
-      spotify/                  #   (M0-B) auth.ts (PKCE), client.ts, player.ts (5 s poll)
       actuators-macos.ts        #   (M2) pacer window, break card, DND via `shortcuts`, osascript volume, `say`
     dev/
       ping.ts                   #   one-shot harness: fixture + one ping → context, tool calls, decision

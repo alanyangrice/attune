@@ -7,18 +7,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { CONFIG } from "../config.js";
 import type { DJSession } from "../memory/session.js";
-import { INTERRUPT_KINDS, type Decision, type FeedSink, type PingEvent, type Target } from "../types.js";
-import type { ActuatorPort, SpotifyPort } from "../ports.js";
+import { INTERRUPT_KINDS, type Decision, type PingEvent, type Target } from "../types.js";
+import { errMsg } from "../util.js";
 import { serializeContext } from "./prompts/context.js";
 import { systemPrompt } from "./prompts/system.js";
 import { buildRunnerTools, callTool } from "./tools/index.js";
-import type { PingRuntime } from "./tools/types.js";
+import type { AgentDeps, PingRuntime } from "./tools/types.js";
 
-export interface AgentDeps {
-  spotify: SpotifyPort;
-  act: ActuatorPort;
-  feed: FeedSink;
-}
+export type { AgentDeps } from "./tools/types.js";
 
 let client: Anthropic | null = null;
 function getClient(): Anthropic {
@@ -31,10 +27,8 @@ export async function deliberate(session: DJSession, event: PingEvent, deps: Age
   const pingId = `${event.kind.toLowerCase()}-${event.at}`;
   session.currentPingId = pingId;
   const rt: PingRuntime = {
+    ...deps,
     session,
-    spotify: deps.spotify,
-    act: deps.act,
-    feed: deps.feed,
     event,
     interruptAllowed,
     pingId,
@@ -62,7 +56,7 @@ export async function deliberate(session: DJSession, event: PingEvent, deps: Age
         fallbacks: [{ model: "claude-opus-4-8" }], // auto-fallback if a request is safety-declined
         system: [{ type: "text" as const, text: systemPrompt(), cache_control: { type: "ephemeral" as const } }],
         tools: buildRunnerTools(rt),
-        messages: [{ role: "user", content: serializeContext(session, event, deps.spotify, interruptAllowed) }],
+        messages: [{ role: "user", content: serializeContext(session, event, deps, interruptAllowed) }],
       });
       if (rt.actions.length === 0) {
         // model ended its turn without any action tool → that's an implicit hold
@@ -79,7 +73,7 @@ export async function deliberate(session: DJSession, event: PingEvent, deps: Age
     deps.feed({
       ts: Date.now(),
       phase: "error",
-      text: `✗ deliberation failed: ${err instanceof Error ? err.message : String(err)}`,
+      text: `✗ deliberation failed: ${errMsg(err)}`,
     });
     if (rt.actions.length === 0) await callTool(rt, "do_nothing", { reason: "deliberation failed — holding as-is" });
   } finally {
@@ -101,17 +95,24 @@ async function fakeDeliberate(rt: PingRuntime): Promise<void> {
   const { session, spotify, event } = rt;
   const band = session.latest?.band ?? "calm";
 
+  const hold = (reason: string) => callTool(rt, "do_nothing", { reason });
+
+  /** search + queue through the real tool guards; on failure, hold with the honest reason */
   const pick = async (query: string, interrupt: boolean, reason: string): Promise<boolean> => {
+    if (!spotify.available()) {
+      await hold("music unavailable (no active Spotify device)");
+      return true; // handled — callers should not try another lever
+    }
     const before = rt.actions.length;
     const results = await spotify.search(query, 8);
     for (const t of results) rt.seen.set(t.uri, t);
-    const last = session.lastArtists();
-    const c = results.find((t) => !session.alreadyPlayed(t.uri) && !t.artists.some((a) => last.includes(a)));
-    if (!c) return false;
+    const c = results.find((t) => !session.queueBlocker(t));
+    if (!c) return false; // genuinely no candidates
     await callTool(rt, "queue_track", { uri: c.uri, reason, interrupt });
-    return rt.actions.length > before;
+    if (rt.actions.length > before) return true;
+    await hold("queue failed — holding as-is");
+    return true;
   };
-  const hold = (reason: string) => callTool(rt, "do_nothing", { reason });
 
   switch (event.kind) {
     case "SESSION_START":

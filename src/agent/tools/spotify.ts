@@ -1,8 +1,14 @@
 // Music integration: the backbone lever (search is info, queue is the action).
+// Also the sensor role for the player: it turns the port's trackchange /
+// ending events into ledger updates and TRACK_ENDING pings, so entry points
+// never wire the player themselves.
 
 import { z } from "zod";
 import { CONFIG } from "../../config.js";
+import { errMsg, mmss } from "../../util.js";
 import { decide, defineTool, type Integration, type PingRuntime } from "./types.js";
+
+const UNAVAILABLE = "Music is unavailable right now (no active Spotify device) — use a non-music lever if one fits, or do_nothing.";
 
 async function search(query: string, limit: number, rt: PingRuntime): Promise<string> {
   rt.searches += 1;
@@ -11,32 +17,39 @@ async function search(query: string, limit: number, rt: PingRuntime): Promise<st
   rt.feed({ ts: Date.now(), phase: "tool", text: `⌕ search "${query}" → ${results.length} result(s)` });
   if (!results.length) return "No results — try different terms.";
   const nudge = rt.searches >= CONFIG.softSearchBudget ? `\n(${rt.searches} searches this ping — decide with what you have.)` : "";
-  return JSON.stringify(
-    results.map((t) => ({
-      uri: t.uri,
-      name: t.name,
-      artists: t.artists,
-      durationSec: t.durationSec,
-      popularity: t.popularity,
-      alreadyPlayed: rt.session.alreadyPlayed(t.uri) || undefined,
-    })),
-  ) + nudge;
+  return (
+    JSON.stringify(
+      results.map((t) => ({
+        uri: t.uri,
+        name: t.name,
+        artists: t.artists,
+        durationSec: t.durationSec,
+        popularity: t.popularity,
+        alreadyPlayed: rt.session.alreadyPlayed(t.uri) || undefined,
+      })),
+    ) + nudge
+  );
 }
 
 async function queue(uri: string, reason: string, interrupt: boolean, rt: PingRuntime): Promise<string> {
   const track = rt.seen.get(uri);
   if (!track) return "Unknown uri — only uris returned by search_spotify_tracks this ping can be queued.";
-  if (rt.session.alreadyPlayed(uri)) return "Already played this session — pick another track.";
-  const last = rt.session.lastArtists();
-  if (track.artists.some((a) => last.includes(a)))
-    return `Same artist back-to-back (${last.join(", ")}) — pick a different artist.`;
+  const blocker = rt.session.queueBlocker(track);
+  if (blocker) return blocker;
+  if (!rt.spotify.available()) return UNAVAILABLE;
   let note = "";
   if (interrupt && !rt.interruptAllowed) {
     interrupt = false;
     note = " Interrupt not allowed for this event — queued for the next boundary instead.";
   }
   rt.session.pendingQueue = { track, reason, pingId: rt.pingId };
-  await rt.spotify.queue(track, interrupt);
+  try {
+    await rt.spotify.queue(track, interrupt);
+  } catch (err) {
+    rt.session.pendingQueue = null;
+    rt.feed({ ts: Date.now(), phase: "error", text: `✗ queue failed: ${errMsg(err)}` });
+    return `Could not queue (${errMsg(err)}). ${UNAVAILABLE}`;
+  }
   rt.feed({
     ts: Date.now(),
     phase: "decision",
@@ -74,7 +87,29 @@ const integration: Integration = {
       run: (i, rt) => queue(i.uri, i.reason, i.interrupt, rt),
     }),
   ],
-  leverStatus: () => ["queue_track ✓"],
+  leverStatus: (_session, deps) => [deps.spotify.available() ? "queue_track ✓" : "queue_track ✗ (no active Spotify device)"],
+  contextLine: (session, deps) => {
+    const np = deps.spotify.nowPlaying();
+    const now = np
+      ? `NOW_PLAYING: "${np.track.name}" — ${np.track.artists.join(", ")} (${mmss(np.positionSec)} / ${mmss(np.track.durationSec)})`
+      : "NOW_PLAYING: nothing yet";
+    const last = session.lastArtists();
+    return `${now} · no repeats this session; avoid same artist back-to-back${last.length ? ` (last: ${last.join(", ")})` : ""}`;
+  },
+  events: (emit, session, { spotify, feed }) => {
+    const onChange = (t: Parameters<typeof session.onTrackChange>[0]) => {
+      session.onTrackChange(t);
+      feed({ ts: Date.now(), phase: "info", text: `▶ now playing "${t.name}" — ${t.artists.join(", ")}` });
+    };
+    const onEnding = (t: { name: string }, secondsLeft: number) =>
+      emit({ kind: "TRACK_ENDING", at: Date.now(), detail: `"${t.name}" ends in ~${Math.round(secondsLeft)}s` });
+    spotify.on("trackchange", onChange);
+    spotify.on("ending", onEnding);
+    return () => {
+      spotify.off("trackchange", onChange);
+      spotify.off("ending", onEnding);
+    };
+  },
 };
 
 export default integration;

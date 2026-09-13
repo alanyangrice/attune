@@ -17,7 +17,8 @@
     "ping": "tsx src/dev/ping.ts",
     "ping:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/ping.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "camera:test": "tsx electron/vitals/camera-smoke.ts"
+    "loop:vitals": "VITALS=real tsx src/dev/run-loop.ts",
+    "vitals:smoke": "tsx src/dev/vitals-smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

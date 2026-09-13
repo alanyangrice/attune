@@ -18,8 +18,21 @@ export interface VitalsSample {
   ts: number; // epoch ms
   hr: number; // bpm
   br: number; // breaths/min
-  hrv?: number;
+  hrv?: number; // RMSSD, ms
+  eda?: number; // electrodermal activity trace, arbitrary units
   confidence: number; // 0..1
+}
+
+/** Raw face metrics passed through from the camera at ~10 Hz (design.md §3, §4b). */
+export interface FaceSample {
+  ts: number;
+  /** 478 MediaPipe points, pixel coords; absent = no face */
+  landmarks?: { x: number; y: number }[];
+  stable: boolean;
+  blinking: boolean;
+  talking: boolean;
+  /** expression class → confidence % */
+  expression?: Record<string, number>;
 }
 
 export interface ArousalSnapshot {
@@ -114,6 +127,13 @@ export type LedgerEntry =
   | { kind: "dnd"; pingId?: string; on: boolean; at: number }
   | { kind: "nothing"; pingId?: string; reason: string; at: number };
 
+export type TrackEntry = Extract<LedgerEntry, { kind: "track" }>;
+export type PacerEntry = Extract<LedgerEntry, { kind: "pacer" }>;
+export type BreakEntry = Extract<LedgerEntry, { kind: "break" }>;
+
+/** epoch ms at which a ledger entry happened */
+export const entryTime = (e: LedgerEntry): number => ("startedAt" in e ? e.startedAt : e.at);
+
 // ── feed: what the UI (or console) shows about the agent's inner life ─────
 
 export interface FeedEvent {
@@ -126,6 +146,6 @@ export type FeedSink = (e: FeedEvent) => void;
 
 /** One action taken during a deliberation (a ping may take several). */
 export interface Decision {
-  action: "queue_track" | "pacer" | "break" | "dnd" | "duck" | "say" | "nothing";
+  action: string; // tool-defined label, e.g. "queue_track", "pacer", "nothing"
   interrupted: boolean;
 }
