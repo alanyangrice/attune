@@ -4,28 +4,32 @@ What is left to build, split into lanes that can run in parallel. Each lane name
 
 Legend: ✅ done · 🟡 partial · ⬜ not started
 
+Status as of 2026-09-12 late evening. Backend lanes 1–6 are integrated behind one `SessionController` (`src/core/session/`); every front end speaks `src/core/session/events.ts`.
+
 ---
 
 ## 0. Where we are
 
 | Lane | Status | One-liner |
 |---|---|---|
-| 1. Agent core | 🟡 | Loop, gate, tools, ledger, prompts all run on the scripted policy. **Real Claude path has never executed.** |
-| 2. Events / orchestrator | 🟡 | Ping kinds and gate exist; only mock sensors and hotkeys raise pings today. |
-| 3. Spotify | 🟡 | Stub + **real** adapter behind `SpotifyPort` (`SPOTIFY=real`). |
-| 4. Presage vitals | 🟡 | `SmartSpectraProvider` behind `createVitals()`; emits 1 Hz samples + face; `VITALS=real npm run loop`. Needs venue testing. |
-| 5. Attention | 🟡 | `attention/face.ts` computes yaw/pitch/gaze features from landmarks. No fusion, no calibration, no pings yet. |
-| 6. macOS actuators | ⬜ | Console printouts behind `ActuatorPort`. |
-| 7. Electron shell + IPC | ⬜ | Nothing. `src/` is plain Node and must stay that way. |
-| 8. Frontend UI | ⬜ | Nothing. Design in §6. |
+| 1. Agent core | ✅ | Verified against real Claude (fixtures + full loop). Composes actions, per-ping attribution, one-shot `npm run ping` harness. Left: explicit tool imports before packaging. |
+| 2. Events / orchestrator | ✅ | `SessionController` owns lifecycle, wires vitals → estimator → SPIKE, attention → DISTRACTED/REFOCUSED, player → TRACK_ENDING; emits the `SessionEvent` stream, accepts `SessionCommand`s. |
+| 3. Spotify | 🟡 | Real adapter verified live for login (persisted) and search. **Playback blocked: the logged-in account is not Premium** (403 PREMIUM_REQUIRED). |
+| 4. Presage vitals | 🟡 | `SmartSpectraProvider` (typed decoder, 1 Hz samples + 10 Hz face) behind `createVitals()`. Camera opens and validates; **no clean HR/BR run yet** — another app (Brave) held the camera during tests. |
+| 5. Attention | 🟡 | `AttentionFuser` (§4b calibration, 30 s score, hysteresis, phone signature, AWAY/DROWSY/OFF_TASK) passes synthetic scenes in both profiles; `ScreenChecker` verified live with real Claude verdicts. **Not yet run on a real face.** |
+| 6. macOS actuators | ✅ | `MacActuators` (`ACTUATORS=macos`): volume duck verified, ElevenLabs TTS verified (macOS `say` fallback), notifications, DND via two user-made Shortcuts. Pacer window / break card UI belong to lane 8. |
+| 7. Electron shell + IPC | 🟡 | In progress on a subagent lane: `src/electron/main.ts` + preload, one IPC channel each way (`session:event` / `session:command`). |
+| 8. Frontend UI | 🟡 | In progress on the same lane: Vite + React dashboard per §6, DJ feed first. |
 | 9. Session memory across sittings | ⬜ (deferred) | `toSnapshot()/fromSnapshot()` exist; no store. |
 | 10. Demo + ops | ⬜ | Script drafted in §9; nothing rehearsed. |
 
-Run today: `npm run ping:fake -- --fixture=track-ending --kind=TRACK_ENDING --show-context` (one ping, one second) · `npm run loop:fake:auto` (full loop, 2.5 min).
+Run today: `npm run ping:fake -- --fixture=track-ending --kind=TRACK_ENDING --show-context` (one ping) · `npm run loop:fake:auto` (full loop, 2.5 min, mock everything) · `VITALS=real ATTENTION=fuse SCREEN=1 ACTUATORS=macos npm run loop` (the real thing) · smokes: `vitals:smoke`, `attention:smoke`, `screen:smoke`, `actuators:smoke`.
+
+**Blocked on people, not code:** a Premium Spotify login (lane 3); a clean camera run with no other app holding the camera, sitting centered at eye level (lanes 4–5); Screen Recording + Accessibility permission for the launching app (lane 5 screen check); two Shortcuts named "Attune DND On/Off" (lane 6).
 
 ---
 
-## 1. Agent core — `src/agent/`, `src/memory/`
+## 1. Agent core — `src/core/agent/`, `src/core/memory/`
 
 **Exists:** `createAgent()` → gate (`loop.ts`) → deliberation (`deliberate.ts`, tool runner or scripted policy) → integrations in `tools/` (spotify, pacer, breaks, system, core) → ledger with per-ping attribution. Fixtures + one-shot harness.
 
@@ -41,7 +45,7 @@ Run today: `npm run ping:fake -- --fixture=track-ending --kind=TRACK_ENDING --sh
 
 ---
 
-## 2. Events / orchestrator — `src/sensors/`, entry point wiring
+## 2. Events / orchestrator — `src/core/sensors/`, entry point wiring
 
 The "when does the agent wake up" layer. Everything here ends in `agent.handle({ kind, at, detail })`.
 
@@ -58,7 +62,7 @@ The "when does the agent wake up" layer. Everything here ends in `agent.handle({
 
 ---
 
-## 3. Spotify — `src/adapters/spotify/` (§8)
+## 3. Spotify — `src/core/adapters/spotify/` (§8)
 
 Implements `SpotifyPort` (`search`, `queue`, `nowPlaying`, `hasQueued`) and emits `trackchange` / `ending`.
 
@@ -79,7 +83,7 @@ Implements `SpotifyPort` (`search`, `queue`, `nowPlaying`, `hasQueued`) and emit
 
 ---
 
-## 4. Presage vitals — `src/sensors/smartspectra.ts` (§3, M3)
+## 4. Presage vitals — `src/core/sensors/smartspectra.ts` (§3, M3)
 
 Implements `VitalsProvider`: emits `sample` (`VitalsSample` at ~1 Hz) and `status`.
 
@@ -96,7 +100,7 @@ Implements `VitalsProvider`: emits `sample` (`VitalsSample` at ~1 Hz) and `statu
 
 ---
 
-## 5. Attention — `src/sensors/attention/` (§4b)
+## 5. Attention — `src/core/sensors/attention/` (§4b)
 
 Implements `AttentionProvider`: `state` (AWAY / DISTRACTED / OFF_TASK / DROWSY / FOCUSED) and DISTRACTED / REFOCUSED pings with reasons. No ML of our own.
 
@@ -111,7 +115,7 @@ Implements `AttentionProvider`: `state` (AWAY / DISTRACTED / OFF_TASK / DROWSY /
 
 ---
 
-## 6. macOS actuators — `src/adapters/actuators-macos.ts` (§5)
+## 6. macOS actuators — `src/core/adapters/actuators-macos.ts` (§5)
 
 Implements `ActuatorPort` (`startPacer`, `suggestBreak`, `setDnd`, `duckVolume`, `say`). The pacer and break card are windows, so this straddles lane 7.
 
@@ -125,7 +129,7 @@ Implements `ActuatorPort` (`startPacer`, `suggestBreak`, `setDnd`, `duckVolume`,
 
 ---
 
-## 7. Electron shell + IPC — `electron/` (§2, §7, M2)
+## 7. Electron shell + IPC — `src/electron/` (§2, §7, M2)
 
 Thin host. Owns windows, permissions, and IPC. Imports `src/` and never the reverse.
 
@@ -140,7 +144,7 @@ Thin host. Owns windows, permissions, and IPC. Imports `src/` and never the reve
 
 ---
 
-## 8. Frontend UI — `renderer/` (§6)
+## 8. Frontend UI — `src/renderer/` (§6)
 
 React + Vite. Thin client over the IPC events; no logic.
 
@@ -158,7 +162,7 @@ React + Vite. Thin client over the IPC events; no logic.
 
 ---
 
-## 9. Session memory across sittings — `src/memory/store.ts` (deferred)
+## 9. Session memory across sittings — `src/core/memory/store.ts` (deferred)
 
 - [ ] `SessionStore` implementation: JSON per session under `sessions/`.
 - [ ] Save on stop; `loadRecent(3)` on start.

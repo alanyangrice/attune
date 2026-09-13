@@ -4,14 +4,14 @@ Study-session agent: webcam vitals + attention (Presage SmartSpectra) → Claude
 `design.md` is the source of truth; section numbers in code comments refer to it.
 
 ## Run
-- `npm run ping:fake -- --fixture=<name> --kind=<PING> [--detail=...] [--show-context]` — fire ONE ping at a fixture session and see the context, tool calls, and decision. Seconds, no keys. **Use this to iterate on prompts and tools.** Fixtures live in `src/dev/fixtures/`.
+- `npm run ping:fake -- --fixture=<name> --kind=<PING> [--detail=...] [--show-context]` — fire ONE ping at a fixture session and see the context, tool calls, and decision. Seconds, no keys. **Use this to iterate on prompts and tools.** Fixtures live in `src/core/dev/fixtures/`.
 - `npm run ping -- ...` — same with real Claude (`ANTHROPIC_API_KEY` in `.env`).
 - `npm run loop:fake:auto` — full closed loop with mock sensors, scripted policy, exits after ~2.5 min. Run before every commit.
 - `npm run loop:fake` — interactive hotkeys (s/r/c stress, p phone, b back, n not-vibing, t target, q quit). `npm run loop` for real Claude.
 - `npm run loop:vitals` — same loop on the real camera (`VITALS=real`, needs `PRESAGE_API_KEY`). `npm run vitals:smoke -- --seconds=20` prints raw camera output through the port.
 - `npm run typecheck` — must be clean.
 
-## Layout (src/) — the backend; plain Node, zero Electron imports
+## Layout (src/core/) — the backend; plain Node, zero Electron imports. `src/electron/` is the thin host, `src/renderer/` the React UI; each has its own tsconfig.
 - `types.ts` — data contracts: events, ledger, samples, decisions.
 - `ports.ts` — every boundary interface: `SpotifyPort`, `ActuatorPort`, `VitalsProvider`, `AttentionProvider`, `SessionStore`. Core code imports outside services only through here.
 - `agent/` — `index.ts` (`createAgent()`, the only import for entry points) → `loop.ts` (the gate: priority, cooldowns, one deliberation in flight) → `deliberate.ts` (one bounded tool-runner call, or the fake policy) → `tools/` (one integration per file: tools + doctrine + lever status) + `prompts/` (stable system prompt, per-ping context).

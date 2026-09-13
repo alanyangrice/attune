@@ -17,8 +17,10 @@ export interface FaceFeatures {
   yaw?: number;
   /** nose position between the eye line (0) and the chin (1); larger = looking down */
   pitch?: number;
-  /** mean iris x within the eye box, 0 (inner corner) … 1 (outer corner) */
+  /** mean iris x within the eye box, 0 (image left) … 1 (image right) — both eyes move together on a glance */
   gazeX?: number;
+  /** mean iris y between the lids, 0 (upper lid) … 1 (lower lid); larger = looking down */
+  gazeY?: number;
   blinking: boolean;
   talking: boolean;
 }
@@ -34,25 +36,37 @@ const EYE_L_INNER = 362; // subject's left eye
 const EYE_L_OUTER = 263;
 const IRIS_R = [468, 473] as const; // start, end (exclusive)
 const IRIS_L = [473, 478] as const;
+const LID_R = [159, 145] as const; // upper, lower
+const LID_L = [386, 374] as const;
 
 const mid = (a: Pt, b: Pt): Pt => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 
-function irisMeanX(lm: Pt[], [start, end]: readonly [number, number]): number | undefined {
-  let sum = 0;
+function irisMean(lm: Pt[], [start, end]: readonly [number, number]): Pt | undefined {
+  let x = 0;
+  let y = 0;
   let n = 0;
   for (let i = start; i < end; i++) {
     const p = lm[i];
     if (!p) continue;
-    sum += p.x;
+    x += p.x;
+    y += p.y;
     n += 1;
   }
-  return n ? sum / n : undefined;
+  return n ? { x: x / n, y: y / n } : undefined;
 }
 
-/** where the iris sits within the eye box: 0 at the inner corner, 1 at the outer */
-function gazeRatio(irisX: number | undefined, inner: Pt | undefined, outer: Pt | undefined): number | undefined {
-  if (irisX === undefined || !inner || !outer || outer.x === inner.x) return undefined;
-  return (irisX - inner.x) / (outer.x - inner.x);
+/** iris position within one eye: x across the corners in IMAGE order, y between the lids */
+function eyeGaze(lm: Pt[], iris: readonly [number, number], cornerA: number, cornerB: number, lids: readonly [number, number]): Pt | undefined {
+  const c = irisMean(lm, iris);
+  const a = lm[cornerA];
+  const b = lm[cornerB];
+  const upper = lm[lids[0]];
+  const lower = lm[lids[1]];
+  if (!c || !a || !b || !upper || !lower) return undefined;
+  const left = Math.min(a.x, b.x);
+  const right = Math.max(a.x, b.x);
+  if (right === left || lower.y === upper.y) return undefined;
+  return { x: (c.x - left) / (right - left), y: (c.y - upper.y) / (lower.y - upper.y) };
 }
 
 export function faceFeatures(sample: FaceSample): FaceFeatures {
@@ -76,11 +90,12 @@ export function faceFeatures(sample: FaceSample): FaceFeatures {
     if (chin.y !== eyeLine.y) pitch = (nose.y - eyeLine.y) / (chin.y - eyeLine.y);
   }
 
-  const gazeR = gazeRatio(irisMeanX(lm, IRIS_R), lm[EYE_R_INNER], eyeROuter);
-  const gazeL = gazeRatio(irisMeanX(lm, IRIS_L), lm[EYE_L_INNER], eyeLOuter);
-  const gazeX = gazeR !== undefined && gazeL !== undefined ? (gazeR + gazeL) / 2 : undefined;
+  const gazeR = eyeGaze(lm, IRIS_R, EYE_R_INNER, EYE_R_OUTER, LID_R);
+  const gazeL = eyeGaze(lm, IRIS_L, EYE_L_INNER, EYE_L_OUTER, LID_L);
+  const gazeX = gazeR && gazeL ? (gazeR.x + gazeL.x) / 2 : undefined;
+  const gazeY = gazeR && gazeL ? (gazeR.y + gazeL.y) / 2 : undefined;
 
-  return { ...base, present: true, yaw, pitch, gazeX };
+  return { ...base, present: true, yaw, pitch, gazeX, gazeY };
 }
 
 export type GazeClass = "left" | "center" | "right" | "unknown";
