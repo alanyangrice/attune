@@ -49,7 +49,7 @@ The agent is a **long-running session, not a long-running conversation**: a `DJS
 
 ```
 attune/
-  src/                          # THE BACKEND: plain Node/TS, zero Electron imports (runs headless via src/dev/*)
+  src/                          # THE BACKEND: plain Node/TS, zero Electron imports (runs headless via src/core/dev/*)
     types.ts                    #   data contracts: events, ledger, samples, decisions
     ports.ts                    #   boundary interfaces: SpotifyPort, ActuatorPort, VitalsProvider, AttentionProvider, SessionStore
     config.ts                   #   every threshold; demo / real timing profiles
@@ -80,9 +80,9 @@ attune/
         types.ts                #   Integration/AttuneTool contract + PingRuntime + guards
         index.ts                #   registry: discovery, runner binding, doctrine/status collection
         spotify.ts pacer.ts breaks.ts system.ts core.ts   # built-ins
-  electron/                     # (M2) thin host: main.ts wires src/ + IPC; overlay windows for pacer / break card
+  src/electron/                     # (M2) thin host: main.ts wires src/ + IPC; overlay windows for pacer / break card
     main.ts                     #   createAgent() + sensors + adapters; ipc.ts typed channels (§7)
-  renderer/                     # (M2) React + Vite dashboard (§6)
+  src/renderer/                     # (M2) React + Vite dashboard (§6)
   design.md
 ```
 
@@ -306,7 +306,7 @@ Honesty note: like arousal, this is a heuristic, listener-relative, tuned on us 
 
 Anti-nag rate limits (the agent must never become the distraction): global 90 s interrupt cooldown (§4) · ≤1 break suggestion per 25 min · ≤1 pacer per 10 min · overlays suppressed while `AWAY`.
 
-### Anatomy of one ping (as implemented in `src/agent/`)
+### Anatomy of one ping (as implemented in `src/core/agent/`)
 
 1. A sensor or the player raises a `PingEvent` → `agent.handle()` (`index.ts` → `AgentLoop` in `loop.ts`).
 2. **Gates run before intelligence:** `REFOCUSED` = ledger bookkeeping, zero LLM · boundary with a track already queued = skip · `SPIKE`/`DISTRACTED` inside the interrupt cooldown = skip · events arriving mid-deliberation are coalesced (highest priority kept, rest dropped, `∅` lines in the feed).
@@ -361,7 +361,7 @@ The toolbox above is just the **built-in** integration set. Any new integration 
 | **context** | one live line for the serializer | `LIGHTS: warm 30%` |
 | **events** | pings it can raise (a sensor role) | calendar: `MEETING_SOON (10 min)` |
 
-**Implemented** (pattern modeled on evanai-client's tool providers): every `.ts` file in `src/agent/tools/` that default-exports an `Integration` is auto-discovered at startup — drop a file in, and its tools, doctrine (assembled into the system prompt), lever-status, context lines, and events are live on the next run. `defineTool()` keeps each tool's `run` typed by its own zod schema; guards (cooldowns, no-repeats, interrupt permission; a soft search budget) are shared helpers in `tools/types.ts`. Caveat noted in `index.ts`: Electron packaging (asar) or a bundler may need discovery swapped for an explicit import list — a one-file change. Flex-shelf candidates: Hue, Calendar, grayscale.
+**Implemented** (pattern modeled on evanai-client's tool providers): every `.ts` file in `src/core/agent/tools/` that default-exports an `Integration` is auto-discovered at startup — drop a file in, and its tools, doctrine (assembled into the system prompt), lever-status, context lines, and events are live on the next run. `defineTool()` keeps each tool's `run` typed by its own zod schema; guards (cooldowns, no-repeats, interrupt permission; a soft search budget) are shared helpers in `tools/types.ts`. Caveat noted in `index.ts`: Electron packaging (asar) or a bundler may need discovery swapped for an explicit import list — a one-file change. Flex-shelf candidates: Hue, Calendar, grayscale.
 
 **Call shape** — SDK tool runner, one bounded run per ping (≤ ~4 tool rounds):
 

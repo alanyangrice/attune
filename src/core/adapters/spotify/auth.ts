@@ -13,7 +13,7 @@ const SCOPES =
   "user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing user-top-read playlist-read-private user-library-read";
 const EXPIRY_SKEW_MS = 60_000;
 const LOGIN_TIMEOUT_MS = 120_000;
-const TOKEN_FILE = new URL("../../../.spotify-tokens.json", import.meta.url);
+const TOKEN_FILE = new URL("../../../../.spotify-tokens.json", import.meta.url);
 
 interface TokenResponse {
   access_token: string;

@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 // no expansion. Keys are upper-cased so `presage_api_key=…` in .env lands
 // as PRESAGE_API_KEY (the SDKs only look at the upper-case names).
 try {
-  for (const line of readFileSync(new URL("../.env", import.meta.url), "utf8").split("\n")) {
+  for (const line of readFileSync(new URL("../../.env", import.meta.url), "utf8").split("\n")) {
     const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
     if (!m || !m[1] || m[1].startsWith("#")) continue;
     const key = m[1].toUpperCase();
