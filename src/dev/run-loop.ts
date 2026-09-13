@@ -1,7 +1,8 @@
-// Console harness for the agentic loop (design.md §10 M1). Runs the whole
-// closed loop headless: mock vitals → estimator → agent (gate → deliberation) →
-// stub Spotify/actuators. The Electron renderer replaces this file at M2 —
-// everything it prints arrives as the same events the UI will consume.
+// Console harness for the agentic loop (design.md §10 M1). A thin front end
+// over SessionController: it builds the ports, subscribes to the session's
+// event stream, prints every SessionEvent as one line, and turns hotkeys (or
+// the --auto timeline) into SessionCommands. Electron main is the same shape
+// with IPC in place of stdout/stdin (design.md §7).
 //
 //   npm run loop              live keys, real Claude (needs ANTHROPIC_API_KEY)
 //   npm run loop:fake         live keys, scripted policy (no key needed)
@@ -11,16 +12,16 @@
 //       [n]ot-vibing [t]arget-cycle [a]ccept-break · [q]uit
 
 import readline from "node:readline";
-import { createAgent } from "../agent/index.js";
 import { formatLedgerEntry } from "../agent/prompts/context.js";
 import { CONFIG } from "../config.js";
-import { ConsoleActuators } from "../adapters/actuators-console.js";
+import { createActuators } from "../adapters/index.js";
 import { createSpotify } from "../adapters/spotify/index.js";
-import { DJSession } from "../memory/session.js";
-import { Estimator } from "../sensors/estimator.js";
 import { createVitals, MockVitalsProvider } from "../sensors/index.js";
-import type { AttentionState, FeedEvent, Target } from "../types.js";
-import { mmss } from "../util.js";
+import { createAttention, ScreenChecker } from "../sensors/attention/index.js";
+import { SessionController } from "../session/controller.js";
+import type { SessionCommand, SessionEvent, SessionPhase } from "../session/events.js";
+import type { ArousalSnapshot, AttentionState, FeedEvent, NowPlaying, Target } from "../types.js";
+import { errMsg, mmss } from "../util.js";
 import { argOf, flag } from "./args.js";
 
 const auto = flag("auto");
@@ -37,73 +38,106 @@ const clock = () => {
 const print = (line: string) => console.log(`[${clock()}] ${line}`);
 const feed = (e: FeedEvent) => print(e.phase === "thinking" || e.phase === "tool" || e.phase === "info" ? `   ${e.text}` : e.text);
 
-// ── wiring ─────────────────────────────────────────────────────────────────
+// ── ports + controller ─────────────────────────────────────────────────────
 
-const session = new DJSession({ target, task, taste });
-const estimator = new Estimator();
 const vitals = createVitals();
-const mock = vitals instanceof MockVitalsProvider ? vitals : null; // stress hotkeys + pacer biofeedback only make sense on the mock body
+const mock = vitals instanceof MockVitalsProvider ? vitals : null; // pacer biofeedback only makes sense on the mock body
+const attention = createAttention({ vitals });
 const spotify = await createSpotify();
-const act = new ConsoleActuators(print, {
+const act = createActuators({ print, warn: (msg: string) => print(`⚠ ${msg}`),
   onPacer: (seconds, bpm) => mock?.paceBreathing(bpm, seconds), // biofeedback: the mock body follows the pacer
 });
-const agent = await createAgent(session, { spotify, act, feed });
+const screen = CONFIG.screen.enabled ? new ScreenChecker() : undefined;
+const controller = new SessionController({ vitals, attention, spotify, act, screen });
 
-let attention: AttentionState = "UNKNOWN";
+const send = (cmd: SessionCommand) => void controller.dispatch(cmd).catch((err) => print(`✗ ${cmd.type}: ${errMsg(err)}`));
 
-vitals.on("sample", (s) => estimator.feed(s));
-vitals.on("status", (s) => print(`· vitals ${s}`));
-vitals.on("warning", (msg) => print(`⚠ camera: ${msg}`));
-vitals.on("error", (err) => print(`✗ vitals: ${err.message}`));
-estimator.on("state", (snap) => session.tick(snap, attention));
-estimator.on("calibrated", (hr, br) => {
-  attention = "FOCUSED";
-  print(`✓ calibrated — baseline HR ${hr.toFixed(0)} / BR ${br.toFixed(0)}; assuming FOCUSED until told otherwise`);
-});
-estimator.on("spike", (detail) => void agent.handle({ kind: "SPIKE", at: Date.now(), detail }));
-// trackchange / ending are consumed by the spotify integration itself (agent/tools/spotify.ts)
-spotify.on("no-device", (msg) => print(`⚠ ${msg}`));
-spotify.on("device", (msg) => print(`✓ ${msg}`));
-spotify.on("warning", (msg) => print(`⚠ spotify: ${msg}`));
+// ── render: one line per event (the future tiles / feed / timeline) ───────
+
+let phase: SessionPhase = "idle";
+let latest: ArousalSnapshot | null = null;
+let attentionState: AttentionState = "UNKNOWN";
+let nowPlaying: NowPlaying | null = null;
+let baselinePrinted = false;
+
+function render(e: SessionEvent): void {
+  switch (e.type) {
+    case "session:state":
+      if (e.state.phase !== phase) {
+        phase = e.state.phase;
+        print(`· session ${phase}${phase === "calibrating" ? ` (baseline over ${CONFIG.baselineSec}s)` : ""}`);
+      }
+      break;
+    case "vitals:sample":
+      latest = e.sample;
+      if (e.sample.calibrated && !baselinePrinted) {
+        baselinePrinted = true;
+        print(`✓ calibrated — baseline HR ${e.sample.baselineHr.toFixed(0)} / BR ${e.sample.baselineBr.toFixed(0)}`);
+      }
+      break;
+    case "vitals:status":
+      print(`· vitals ${e.status}${e.message ? ` — ${e.message}` : ""}`);
+      break;
+    case "attention:state":
+      attentionState = e.state;
+      print(`· attention ${e.state} — ${e.reason}`);
+      break;
+    case "screen:verdict":
+      print(`· screen ${e.onTask ? "on task" : "OFF TASK"} — ${e.activity} (${e.confidence})`);
+      break;
+    case "player:state":
+      nowPlaying = e.nowPlaying;
+      if (e.message) print(`${e.available ? "✓" : "⚠"} ${e.message}`); // the 5 s heartbeat carries no message
+      break;
+    case "agent:event":
+      feed(e.event);
+      break;
+    case "ledger:update":
+    case "break:card":
+    case "pacer:start":
+    case "pacer:end":
+      // ConsoleActuators already printed the card / overlay; the ledger shows up in the summary
+      break;
+    case "warning":
+      print(`⚠ ${e.source}: ${e.message}`);
+      break;
+  }
+}
+controller.on("event", render);
 
 // periodic one-line status (the future vitals/attention tiles)
 setInterval(() => {
-  const v = session.latest;
-  const np = spotify.nowPlaying();
-  if (!v) return;
+  if (!latest) return;
   print(
-    `· hr ${v.hr.toFixed(0)} br ${v.br.toFixed(0)} arousal ${v.arousal.toFixed(2)} (${v.band}) · ${attention}` +
-      (np ? ` · "${np.track.name}" ${mmss(np.positionSec)}` : ""),
+    `· hr ${latest.hr.toFixed(0)} br ${latest.br.toFixed(0)} arousal ${latest.arousal.toFixed(2)} (${latest.band}) · ${attentionState}` +
+      (nowPlaying ? ` · "${nowPlaying.track.name}" ${mmss(nowPlaying.positionSec)}` : ""),
   );
 }, 10_000).unref();
 
-// ── user/demo events ───────────────────────────────────────────────────────
+// ── user/demo commands ─────────────────────────────────────────────────────
 
-function distracted(detail: string) {
-  attention = "DISTRACTED";
-  void agent.handle({ kind: "DISTRACTED", at: Date.now(), detail });
-}
-function refocused() {
-  attention = "FOCUSED";
-  void agent.handle({ kind: "REFOCUSED", at: Date.now(), detail: "back on task" });
-}
+const stress = (level: "calm" | "rising" | "spike") => send({ type: "demo:stress", level });
+const phone = () => send({ type: "demo:attention", state: "DISTRACTED", reason: "looking down 12s (phone signature)" });
+const back = () => send({ type: "demo:attention", state: "FOCUSED", reason: "back on task" });
+const nudge = () => send({ type: "user:nudge" });
 function cycleTarget() {
   const order: Target[] = ["focus", "calm", "energize"];
-  session.target = order[(order.indexOf(session.target) + 1) % order.length]!;
-  void agent.handle({ kind: "TARGET_CHANGED", at: Date.now(), detail: `target is now ${session.target}` });
+  send({ type: "session:setTarget", target: order[(order.indexOf(controller.state.target) + 1) % order.length]! });
 }
 
 function summary(): void {
   print("── session summary ──────────────────────────────");
-  session.ledger.forEach((e, i) => print(` ${i + 1}. ${formatLedgerEntry(e)}`));
+  controller.session?.ledger.forEach((e, i) => print(` ${i + 1}. ${formatLedgerEntry(e)}`));
   print("─────────────────────────────────────────────────");
 }
 
-function quit(): void {
+let quitting = false;
+async function quit(): Promise<void> {
+  if (quitting) return;
+  quitting = true;
   summary();
-  agent.stop();
-  spotify.stop();
-  void Promise.resolve(vitals.stop()).finally(() => process.exit(0));
+  await controller.dispatch({ type: "session:stop" }).catch((err) => print(`✗ stop: ${errMsg(err)}`));
+  process.exit(0);
 }
 
 // ── go ─────────────────────────────────────────────────────────────────────
@@ -111,51 +145,49 @@ function quit(): void {
 print(
   `attune loop · mode=${CONFIG.mode} · vitals=${CONFIG.vitals} · spotify=${CONFIG.spotify} · llm=${CONFIG.fakeLlm ? "FAKE (scripted)" : CONFIG.model} · target=${target} · task="${task}"`,
 );
-print(`integrations: ${agent.integrations.map((i) => i.name).join(", ")}`);
 if (!auto) print("keys: [s]pike [r]ising [c]alm · [p]hone [b]ack · [n]ot-vibing [t]arget [a]ccept-break · [q]uit");
 
-await vitals.start();
-spotify.start();
-void agent.handle({ kind: "SESSION_START", at: Date.now(), detail: `target ${target}; task "${task}"` });
+await controller.dispatch({ type: "session:start", target, task, taste });
+print(`integrations: ${controller.integrations.join(", ")}`);
 
 if (auto) {
   const at = (sec: number, fn: () => void) => setTimeout(fn, sec * 1000).unref();
   at(20, () => {
     print("‹auto› stress rising (mental math starts)");
-    mock?.setStress("rising");
+    stress("rising");
   });
   at(28, () => {
     print("‹auto› full spike");
-    mock?.setStress("spike");
+    stress("spike");
   });
   at(80, () => {
     print("‹auto› picks up phone");
-    distracted("looking down 12s (phone signature)");
+    phone();
   });
   at(100, () => {
     print("‹auto› looks back at the screen");
-    refocused();
+    back();
   });
   at(125, () => {
     print("‹auto› user hits Not Vibing");
-    void agent.handle({ kind: "USER_NUDGE", at: Date.now(), detail: "listener hit the Not Vibing button" });
+    nudge();
   });
-  at(150, quit);
+  at(150, () => void quit());
 } else {
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.on("keypress", (_str, key: { name?: string; ctrl?: boolean }) => {
-    if (key.ctrl && key.name === "c") return quit();
+    if (key.ctrl && key.name === "c") return void quit();
     switch (key.name) {
-      case "s": print("‹key› spike"); mock?.setStress("spike"); break;
-      case "r": print("‹key› rising"); mock?.setStress("rising"); break;
-      case "c": print("‹key› calm"); mock?.setStress("calm"); break;
-      case "p": print("‹key› phone"); distracted("looking down 12s (phone signature)"); break;
-      case "b": print("‹key› back on task"); refocused(); break;
-      case "n": void agent.handle({ kind: "USER_NUDGE", at: Date.now(), detail: "listener hit the Not Vibing button" }); break;
+      case "s": print("‹key› spike"); stress("spike"); break;
+      case "r": print("‹key› rising"); stress("rising"); break;
+      case "c": print("‹key› calm"); stress("calm"); break;
+      case "p": print("‹key› phone"); phone(); break;
+      case "b": print("‹key› back on task"); back(); break;
+      case "n": nudge(); break;
       case "t": cycleTarget(); break;
-      case "a": session.resolveBreak("accepted"); print("‹key› break accepted"); break;
-      case "q": quit(); break;
+      case "a": print("‹key› break accepted"); send({ type: "break:respond", response: "accepted" }); break;
+      case "q": void quit(); break;
     }
   });
 }

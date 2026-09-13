@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "dist-electron/electron/main.js",
   "description": "A focus agent that DJs (and more) — HackRice 16",
   "engines": {
     "node": ">=20"
@@ -18,7 +19,17 @@
     "ping:fake": "ATTUNE_FAKE_LLM=1 tsx src/dev/ping.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "loop:vitals": "VITALS=real tsx src/dev/run-loop.ts",
-    "vitals:smoke": "tsx src/dev/vitals-smoke.ts"
+    "vitals:smoke": "tsx src/dev/vitals-smoke.ts",
+    "attention:smoke": "tsx src/dev/attention-smoke.ts",
+    "screen:smoke": "tsx src/dev/screen-smoke.ts",
+    "actuators:smoke": "ACTUATORS=macos tsx src/dev/actuators-smoke.ts",
+    "dev": "concurrently -k -n vite,electron -c cyan,magenta \"vite --config renderer/vite.config.ts\" \"npm run electron:dev\"",
+    "dev:fake": "ATTUNE_FAKE_LLM=1 npm run dev",
+    "electron:dev": "wait-on http-get://localhost:5173 && npm run build:electron && env -u ELECTRON_RUN_AS_NODE ATTUNE_RENDERER_URL=http://localhost:5173 electron .",
+    "start": "npm run build:renderer && npm run build:electron && env -u ELECTRON_RUN_AS_NODE electron .",
+    "build:renderer": "vite build --config renderer/vite.config.ts",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "typecheck:app": "tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p renderer/tsconfig.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
@@ -27,7 +38,16 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "electron": "^44.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vite": "^8.3.0",
+    "wait-on": "^9.1.0"
   }
 }

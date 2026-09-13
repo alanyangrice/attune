@@ -4,24 +4,28 @@ What is left to build, split into lanes that can run in parallel. Each lane name
 
 Legend: ✅ done · 🟡 partial · ⬜ not started
 
+Status as of 2026-09-12 late evening. Backend lanes 1–6 are integrated behind one `SessionController` (`src/session/`); every front end speaks `src/session/events.ts`.
+
 ---
 
 ## 0. Where we are
 
 | Lane | Status | One-liner |
 |---|---|---|
-| 1. Agent core | 🟡 | Loop, gate, tools, ledger, prompts all run on the scripted policy. **Real Claude path has never executed.** |
-| 2. Events / orchestrator | 🟡 | Ping kinds and gate exist; only mock sensors and hotkeys raise pings today. |
-| 3. Spotify | 🟡 | Stub + **real** adapter behind `SpotifyPort` (`SPOTIFY=real`). |
-| 4. Presage vitals | 🟡 | `SmartSpectraProvider` behind `createVitals()`; emits 1 Hz samples + face; `VITALS=real npm run loop`. Needs venue testing. |
-| 5. Attention | 🟡 | `attention/face.ts` computes yaw/pitch/gaze features from landmarks. No fusion, no calibration, no pings yet. |
-| 6. macOS actuators | ⬜ | Console printouts behind `ActuatorPort`. |
-| 7. Electron shell + IPC | ⬜ | Nothing. `src/` is plain Node and must stay that way. |
-| 8. Frontend UI | ⬜ | Nothing. Design in §6. |
+| 1. Agent core | ✅ | Verified against real Claude (fixtures + full loop). Composes actions, per-ping attribution, one-shot `npm run ping` harness. Left: explicit tool imports before packaging. |
+| 2. Events / orchestrator | ✅ | `SessionController` owns lifecycle, wires vitals → estimator → SPIKE, attention → DISTRACTED/REFOCUSED, player → TRACK_ENDING; emits the `SessionEvent` stream, accepts `SessionCommand`s. |
+| 3. Spotify | 🟡 | Real adapter verified live for login (persisted) and search. **Playback blocked: the logged-in account is not Premium** (403 PREMIUM_REQUIRED). |
+| 4. Presage vitals | 🟡 | `SmartSpectraProvider` (typed decoder, 1 Hz samples + 10 Hz face) behind `createVitals()`. Camera opens and validates; **no clean HR/BR run yet** — another app (Brave) held the camera during tests. |
+| 5. Attention | 🟡 | `AttentionFuser` (§4b calibration, 30 s score, hysteresis, phone signature, AWAY/DROWSY/OFF_TASK) passes synthetic scenes in both profiles; `ScreenChecker` verified live with real Claude verdicts. **Not yet run on a real face.** |
+| 6. macOS actuators | ✅ | `MacActuators` (`ACTUATORS=macos`): volume duck verified, ElevenLabs TTS verified (macOS `say` fallback), notifications, DND via two user-made Shortcuts. Pacer window / break card UI belong to lane 8. |
+| 7. Electron shell + IPC | 🟡 | In progress on a subagent lane: `electron/main.ts` + preload, one IPC channel each way (`session:event` / `session:command`). |
+| 8. Frontend UI | 🟡 | In progress on the same lane: Vite + React dashboard per §6, DJ feed first. |
 | 9. Session memory across sittings | ⬜ (deferred) | `toSnapshot()/fromSnapshot()` exist; no store. |
 | 10. Demo + ops | ⬜ | Script drafted in §9; nothing rehearsed. |
 
-Run today: `npm run ping:fake -- --fixture=track-ending --kind=TRACK_ENDING --show-context` (one ping, one second) · `npm run loop:fake:auto` (full loop, 2.5 min).
+Run today: `npm run ping:fake -- --fixture=track-ending --kind=TRACK_ENDING --show-context` (one ping) · `npm run loop:fake:auto` (full loop, 2.5 min, mock everything) · `VITALS=real ATTENTION=fuse SCREEN=1 ACTUATORS=macos npm run loop` (the real thing) · smokes: `vitals:smoke`, `attention:smoke`, `screen:smoke`, `actuators:smoke`.
+
+**Blocked on people, not code:** a Premium Spotify login (lane 3); a clean camera run with no other app holding the camera, sitting centered at eye level (lanes 4–5); Screen Recording + Accessibility permission for the launching app (lane 5 screen check); two Shortcuts named "Attune DND On/Off" (lane 6).
 
 ---
 
